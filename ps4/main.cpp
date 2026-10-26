@@ -312,8 +312,11 @@ void home(Scene2D& s,const Fonts& f,ps4art::Cache& art,int cardFocus,
     artworkCard(s,f,art,catalog.tv[j],54+j*199,363,170,202,j==cardFocus);
   txt(s,f,"Popular movies",52,605,paper,3);
   for(int j=0;j<6&&j<(int)catalog.movies.size();j++){
-    round(s,54+j*199,615,170,37,6,j+6==cardFocus?C{64,43,96}:card);
-    txt(s,f,cut(catalog.movies[j].title,17),64+j*199,639,paper,0);
+    const int x=54+j*199;
+    round(s,x,612,170,45,7,j+6==cardFocus?C{68,44,104}:card);
+    art.draw(s,catalog.movies[j].poster_path,x+4,616,30,37);
+    txt(s,f,cut(catalog.movies[j].title,14),x+43,641,paper,0);
+    if(j+6==cardFocus)rect(s,x+4,653,162,3,gold);
   }
 }
 void infoBox(Scene2D& s,const Fonts& f,int y,const std::string& name,
