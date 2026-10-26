@@ -19,6 +19,8 @@ jobs:
           /tmp/playtorrio-ps4-tests
           g++ -std=c++17 -Wall -Wextra -Werror src/core.cpp src/config_loader.cpp tests/config_loader_test.cpp -o /tmp/playtorrio-settings-loader-tests
           /tmp/playtorrio-settings-loader-tests
+          g++ -std=c++17 -Wall -Wextra -Werror src/catalog.cpp tests/catalog_test.cpp -o /tmp/playtorrio-ps4-catalog-tests
+          /tmp/playtorrio-ps4-catalog-tests
 
   pkg:
     name: Build genuine PS4 experimental package
@@ -71,6 +73,7 @@ jobs:
           with zipfile.ZipFile(path) as z:
               expected={"BREW20346/eboot.bin","BREW20346/sce_sys/param.sfo","BREW20346/assets/fonts/Gontserrat-Regular.ttf"}
               assert expected.issubset(set(z.namelist())), sorted(expected-set(z.namelist()))
+              assert {"HostTools/Load-Shows.cmd","HostTools/Refresh-Catalog.ps1"}.issubset(set(z.namelist()))
               assert all(z.getinfo(p).file_size>0 for p in expected)
           print("Extracted shadPS4 app folder verified")
           PY
@@ -86,13 +89,13 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          release=ps4-settings-safe-1.0.0
+          release=ps4-tmdb-catalog-1.1.0
           if gh release view "$release" >/dev/null 2>&1; then
             gh release upload "$release" dist/*.pkg dist/*.zip --clobber
           else
             gh release create "$release" dist/*.pkg dist/*.zip --prerelease \
-              --title "PlayTorrio PS4 v1.0 — Safe settings loader / no black screen" \
-              --notes "Fixes settings.json-triggered black screen by deferring bounded UTF-8 JSON loading to an independent thread after first UI frames. Handles BOM/invalid/oversize files without replacing valid config. Adds detailed non-sensitive settings status log. Keeps local TMDB/addon settings and GitHub sync off by default. Real PS4/shadPS4 validation still needed."
+              --title "PlayTorrio PS4 v1.1 — Real TMDB TV shows and movie catalog" \
+              --notes "Real trending and popular TV shows and movies from TMDB are displayed on Home and Discover. On shadPS4, run HostTools/Load-Shows.cmd from emulator ZIP to fetch TMDB metadata using Windows HTTPS and write /data/playtorrio/catalog.json; local catalog hot-reloads while app is running. shadPS4 native sceHttp currently returns -3 and emulator video decode remains unverified. GitHub sync remains disabled by default."
           fi
       - name: Send experimental package to existing Telegram group
         env:
