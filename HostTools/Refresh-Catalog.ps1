@@ -1,10 +1,14 @@
-param([switch]$Watch, [int]$IntervalMinutes=15)
+param([switch]$Watch, [int]$IntervalMinutes=15, [string]$DataRoot='')
 # PlayTorrio PS4 / shadPS4 Windows TMDB catalog loader.
 # Windows HTTPS is used because shadPS4 v0.20 may stub PS4 sceHttpStatus.
 # The only shared file sent into PS4 is PUBLIC title metadata.
 $ErrorActionPreference='Stop'
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-$Root=Join-Path $env:APPDATA 'shadPS4\data\playtorrio'
+$Root=if([string]::IsNullOrWhiteSpace($DataRoot)) {
+  Join-Path $env:APPDATA 'shadPS4\data\playtorrio'
+} else {
+  [System.IO.Path]::GetFullPath($DataRoot)
+}
 $JsonPath=Join-Path $Root 'catalog.json'
 $SettingsPath=Join-Path $Root 'settings.json'
 function Update-Catalog {
@@ -80,7 +84,7 @@ function Update-Catalog {
     }
     $result=[ordered]@{
       version=1
-      updated=(Get-Date).ToUniversalTime().ToString('yyyy-MM-dd HH:mm UTC')
+      updated=(Get-Date).ToUniversalTime().ToString('yyyy-MM-dd HH:mm:ss.fff UTC')
       tv=@($tv)
       movies=@($movies)
     }
@@ -90,9 +94,12 @@ function Update-Catalog {
     $json=ConvertTo-Json -InputObject $result -Depth 7 -Compress
     if($json.Length -gt 240000){throw 'TMDB catalog too big'}
     [System.IO.File]::WriteAllText($temp,$json,[System.Text.UTF8Encoding]::new($false))
-    # Atomic swap; old catalog remains available if download fails.
-    if(Test-Path -LiteralPath $JsonPath){Remove-Item -LiteralPath $JsonPath -Force}
-    Move-Item -LiteralPath $temp -Destination $JsonPath -Force
+    # Replace in one filesystem operation; never delete the working catalog first.
+    if(Test-Path -LiteralPath $JsonPath){
+      [System.IO.File]::Replace($temp,$JsonPath,$null)
+    }else{
+      [System.IO.File]::Move($temp,$JsonPath)
+    }
     Write-Host ("SUCCESS: Loaded {0} real TV shows and {1} real movies" -f $tv.Count,$movies.Count) -ForegroundColor Green
     Write-Host ("Shared catalog: "+$JsonPath)
     Write-Host 'PlayTorrio PS4 will discover these titles when it reloads its local catalog.'

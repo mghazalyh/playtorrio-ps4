@@ -69,7 +69,7 @@ bool parse_catalog(const std::string& src,Catalog& result,std::string& error) {
 Catalog load_file(const char* path){
   Catalog out;
   FILE* f=std::fopen(path,"rb");
-  if(!f){out.error="Catalog not generated. Run HostTools/Refresh-Catalog.cmd on Windows.";return out;}
+  if(!f){out.error="Catalog not generated. Run HostTools/Load-Shows.cmd on Windows.";return out;}
   std::string text;
   char buf[4096];
   while(text.size()<256*1024){

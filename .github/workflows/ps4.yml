@@ -89,33 +89,45 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          release=ps4-tmdb-catalog-1.1.0
+          release=ps4-tmdb-catalog-1.1.1
           if gh release view "$release" >/dev/null 2>&1; then
             gh release upload "$release" dist/*.pkg dist/*.zip --clobber
           else
             gh release create "$release" dist/*.pkg dist/*.zip --prerelease \
-              --title "PlayTorrio PS4 v1.1 — Real TMDB TV shows and movie catalog" \
+              --title "PlayTorrio PS4 v1.1.1 — TMDB catalog reliability and portable loader" \
               --notes "Real trending and popular TV shows and movies from TMDB are displayed on Home and Discover. On shadPS4, run HostTools/Load-Shows.cmd from emulator ZIP to fetch TMDB metadata using Windows HTTPS and write /data/playtorrio/catalog.json; local catalog hot-reloads while app is running. shadPS4 native sceHttp currently returns -3 and emulator video decode remains unverified. GitHub sync remains disabled by default."
           fi
-      - name: Send experimental package to existing Telegram group
+      - name: Send emulator ZIP and experimental PKG to Telegram if configured
         env:
           BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           CHANNEL_ID: "-1003938575195"
-          RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          RELEASE_URL: https://github.com/${{ github.repository }}/releases/tag/ps4-tmdb-catalog-1.1.1
         run: |
           if [ -z "$BOT_TOKEN" ]; then
-            echo "::notice::Add TELEGRAM_BOT_TOKEN to the PS4 repository's Actions secrets to enable delivery."
+            echo "::notice::Telegram delivery skipped: TELEGRAM_BOT_TOKEN is not configured. Both files are available in the GitHub release."
+            echo "Telegram delivery skipped (missing bot token). ZIP and PKG: $RELEASE_URL" >> "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
           pkg="dist/PlayTorrio-PS4-GoldHEN-10.01-EXPERIMENTAL.pkg"
-          if [ "$(stat -c%s "$pkg")" -ge 50000000 ]; then
-            curl --fail --silent --show-error --retry 2 \
-              -F "chat_id=$CHANNEL_ID" -F "text=PlayTorrio PS4 experimental package available: $RUN_URL (too large to attach)" \
-              "https://api.telegram.org/bot$BOT_TOKEN/sendMessage" >/dev/null
-          else
-            curl --fail --silent --show-error --retry 2 \
-              -F "chat_id=$CHANNEL_ID" -F "document=@$pkg" \
-              -F "caption=PlayTorrio PS4 v1.0 settings startup hotfix; invalid JSON should no longer freeze the UI. X in Discover/Addons/My List to resolve video, X pause, Circle exit. FTP logs /data/playtorrio/logs/diagnostics.log. Not yet PS4-tested. $RUN_URL" \
-              "https://api.telegram.org/bot$BOT_TOKEN/sendDocument" >/dev/null
-          fi
-          echo "Telegram package delivered."
+          zip="dist/PlayTorrio-PS4-shadPS4-extracted.zip"
+          for file in "$zip" "$pkg"; do
+            test -s "$file"
+            label="PS4 experimental package"
+            if [ "$file" = "$zip" ]; then
+              label="shadPS4 emulator ZIP with HostTools/Load-Shows.cmd"
+            fi
+            if [ "$(stat -c%s "$file")" -ge 50000000 ]; then
+              curl --fail --silent --show-error --retry 2 \
+                -F "chat_id=$CHANNEL_ID" \
+                -F "text=PlayTorrio PS4 v1.1.1 $label: $RELEASE_URL (attachment exceeds 50 MB)" \
+                "https://api.telegram.org/bot$BOT_TOKEN/sendMessage" >/dev/null
+            else
+              curl --fail --silent --show-error --retry 2 \
+                -F "chat_id=$CHANNEL_ID" \
+                -F "document=@$file" \
+                -F "caption=PlayTorrio PS4 v1.1.1: $label. Real TV and movie browsing requires running the Windows host catalog loader. GitHub sync remains disabled. $RELEASE_URL" \
+                "https://api.telegram.org/bot$BOT_TOKEN/sendDocument" >/dev/null
+            fi
+            echo "Delivered $label to configured Telegram channel."
+          done
+          echo "Telegram delivery completed for ZIP and PKG." >> "$GITHUB_STEP_SUMMARY"

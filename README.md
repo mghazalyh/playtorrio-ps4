@@ -1,16 +1,18 @@
-# PlayTorrio PS4 — Real TV Shows on shadPS4 (v1.1)
+# PlayTorrio PS4 — Real TV Shows on shadPS4 (v1.1.1)
 
 shadPS4 v0.20.0 currently returns unusable HTTP responses for this app's native PS4 networking. The Windows companion fetcher bypasses that emulator limitation. It fetches real TMDB TV series and movies on the Windows host, then saves their public catalog to the shared PS4 data directory.
 
 ## Start loading real shows
 
-1. Install or extract the latest PlayTorrio PS4 v1.1 shadPS4 ZIP.
+1. Install or extract the latest PlayTorrio PS4 v1.1.1 shadPS4 ZIP.
 2. Keep your private settings at: %APPDATA%\shadPS4\data\playtorrio\settings.json
 3. From the ZIP, double-click **HostTools\Load-Shows.cmd**. No Python or administrator privileges needed.
 4. The helper uses your existing tmdbApiKey from settings.json and writes genuine trending and popular TV/movie metadata to: %APPDATA%\shadPS4\data\playtorrio\catalog.json
 5. Launch PlayTorrio or press **Square** outside Settings to reload immediately. The app also checks the shared catalog file automatically approximately every 15 seconds.
 6. Home displays real trending shows and movies. In Discover, D-pad left/right switches TV/movies, L2/R2 switches pages, and X attempts playback of a selected title when its IMDb ID is available.
-7. To refresh repeatedly, run the PowerShell script directly with -Watch; otherwise the batch script updates once.
+7. To refresh repeatedly, run the PowerShell script directly with `-Watch`; otherwise the batch script updates once.
+
+For a **portable or custom shadPS4 data location**, pass the Windows folder mapped to PS4 `/data/playtorrio`, for example `HostTools\\Load-Shows.cmd -DataRoot "D:\\Emulators\\shadPS4\\user\\data\\playtorrio"`. By default the helper targets `%APPDATA%\\shadPS4\\data\\playtorrio`. Ensure the selected folder already contains your private `settings.json`.
 
 Keep githubSyncEnabled set to false. No GitHub requests are necessary to fetch titles. The shared catalog contains public TMDB metadata only, never your TMDB key, addon key, TorBox credentials, or watchlist.
 
