@@ -7,7 +7,9 @@ static const char* const logfile="/data/playtorrio/logs/diagnostics.log";
 static const char* const previous="/data/playtorrio/logs/previous.log";
 struct Summary {
   int passed=0,failed=0,skipped=0,addon_streams=0,library_titles=0;
-  std::vector<std::string> preview_titles; // Shown locally on PS4, NEVER written to diagnostic log.
+  std::vector<std::string> preview_titles; // PS4-only, NEVER written to logfile.
+  std::vector<std::string> preview_ids; // Media IMDb IDs corresponding to titles.
+  std::vector<std::string> preview_types;
   std::string last="Not run yet";
 };
 bool start_logging();
