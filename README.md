@@ -1,4 +1,6 @@
-# PlayTorrio PS4 — Seekable native HTTP video playback (v1.3.0)
+# PlayTorrio PS4 — Seekable native HTTP video playback (v1.3.1)
+
+Titles on every Discover page now lazily resolve their IMDb ID when you select them. Redirect following is restricted to media HEAD and Range requests.
 
 The shadPS4 `host_overrides.json` catch-all rule `"*": "localhost"` was confirmed to redirect every remote API to localhost. Remove that catch-all override and enable **Set Network Connected Status as True**, leaving **Disable HTTPS** unchecked.
 

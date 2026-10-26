@@ -94,9 +94,10 @@ Response request(const std::string& url,const std::string& method,
   sceHttpSetConnectTimeOut(req,7*1000000);
   sceHttpSetResolveTimeOut(req,7*1000000);
   sceHttpSetSendTimeOut(req,10*1000000);
-  // TorBox and other CDN links frequently redirect to expiring media URLs.
-  // Follow normal HTTP redirects while retaining HTTPS-only input validation.
-  ptvHttpSetAutoRedirect(req,1);
+  // Follow redirects only for media range or metadata requests.
+  // Avoid forwarding API Authorization headers across unrelated hosts.
+  if(method=="HEAD" || headers.find("Range")!=headers.end())
+    ptvHttpSetAutoRedirect(req,1);
   for(const auto& h:headers) {
     if(h.first.find_first_of("\r\n")!=std::string::npos ||
        h.second.find_first_of("\r\n")!=std::string::npos)continue;

@@ -539,7 +539,35 @@ int main(){
     const auto config=settings;
     ps4diag::note("CONTROL","Requesting playable video from local sources");
     std::thread([&,config,mediaType,mediaId](){
-      auto found=ps4source::resolve(config,mediaType,mediaId);
+      ps4source::Selection found;
+      try{
+        std::string resolved=mediaId;
+        if(mediaId.rfind("tmdb:",0)==0){
+          const std::string value=mediaId.substr(5);
+          bool valid=!value.empty()&&value.size()<11&&
+            std::all_of(value.begin(),value.end(),
+              [](unsigned char c){return c>='0'&&c<='9';});
+          int number=0;
+          if(valid){
+            try{number=std::stoi(value);}catch(...){number=0;}
+          }
+          if(number>0){
+            resolved=ptvcatalog::imdb_for_tmdb(config,mediaType=="series",number);
+            if(!resolved.empty()&&mediaType=="series")resolved+=":1:1";
+          }else resolved.clear();
+          if(resolved.empty()){
+            found.reason="TMDB has no usable IMDb ID for this title";
+            ps4diag::note("CATALOG","FAIL title IMDb lookup");
+          }else ps4diag::note("CATALOG","PASS title IMDb lookup");
+        }
+        if(!resolved.empty())found=ps4source::resolve(config,mediaType,resolved);
+      }catch(const std::exception&){
+        found.reason="Unexpected source resolution failure";
+        ps4diag::note("PLAYBACK","FAIL unexpected source resolution exception");
+      }catch(...){
+        found.reason="Unexpected source resolution error";
+        ps4diag::note("PLAYBACK","FAIL unknown source resolution error");
+      }
       {
         std::lock_guard<std::mutex> guard(sourceMutex);
         preparedUrl=std::move(found.url);
@@ -654,14 +682,12 @@ int main(){
           const int index=catalogPage*6+focus;
           if(index>=0 && index<(int)list.size()){
             const auto& item=list[index];
-            if(item.imdb_id.empty()){
-              parseError="IMDb ID not available for this title yet; refresh the Windows catalog.";
-              ps4diag::note("CATALOG","SKIP title playback: IMDb ID unavailable");
-            }else{
-              // Stremio's TV stream endpoint requires an episode ID.
-              const auto mediaId=item.series?item.imdb_id+":1:1":item.imdb_id;
-              requestPlayback(item.series?"series":"movie",mediaId);
-            }
+            // Load missing IMDb identifiers on selection, without requiring
+            // a Windows catalog refresh. Stremio episodes use season 1 episode 1.
+            const auto mediaId=item.imdb_id.empty()?
+              "tmdb:"+std::to_string(item.tmdb_id):
+              (item.series?item.imdb_id+":1:1":item.imdb_id);
+            requestPlayback(item.series?"series":"movie",mediaId);
           }
         }else requestPlayback(settings.diagnostic_type,settings.diagnostic_id);
       }
