@@ -1035,13 +1035,18 @@ int main(){
     if(hasReady){
       if(openingUrl.empty()){
         parseError=openingStatus;
+        if(panel==2)detailMessage=openingStatus;
         ps4diag::note("PLAYBACK","FAIL resolution did not yield a supported stream");
       }else{
         std::string failure;
         if(player.start(openingUrl,failure)){
           viewing=true;overlay=true;
+          detailMessage.clear();
           ps4diag::note("PLAYBACK","START AvPlayer video session");
-        }else parseError=failure;
+        }else{
+          parseError=failure;
+          if(panel==2)detailMessage=failure;
+        }
       }
     }
     if(viewing){
