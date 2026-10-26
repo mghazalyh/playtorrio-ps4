@@ -1,4 +1,10 @@
-# PlayTorrio PS4 — Real TV Shows on shadPS4 (v1.1.1)
+# PlayTorrio PS4 — Native TMDB browsing (v1.2.0)
+
+Enable **Set Network Connected Status as True** in shadPS4 and leave **Disable HTTPS** unchecked. Native PS4 HTTP now requests trending TV and movies directly after `settings.json` is loaded; Square on Home/Discover retries. The Windows HostTools loader and `catalog.json` remain optional fallback mechanisms.
+
+If your emulator returns 404 for all endpoints, press Triangle and check the new public HTTPS control probe plus native HTTP return and errno in `diagnostics.log`. A 404 from TMDB, Torrentio and TorBox does **not** prove that your keys are invalid. Emulator logs may contain API keys in URL query strings, so redact them before sharing.
+
+---
 
 shadPS4 v0.20.0 currently returns unusable HTTP responses for this app's native PS4 networking. The Windows companion fetcher bypasses that emulator limitation. It fetches real TMDB TV series and movies on the Windows host, then saves their public catalog to the shared PS4 data directory.
 

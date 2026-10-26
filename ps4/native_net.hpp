@@ -6,6 +6,7 @@ namespace ps4net {
 struct Response {
   int status=0;
   int platform_error=0;
+  int last_errno=0;
   bool truncated=false;
   std::string body;
 };

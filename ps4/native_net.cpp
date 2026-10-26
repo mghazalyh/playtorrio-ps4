@@ -64,7 +64,12 @@ Response request(const std::string& url,const std::string& method,
     const int code=sceHttpSendRequest(req,body.empty()?nullptr:body.data(),body.size());
     if(code<0){result.platform_error=code;goto done;}
   }
-  if(sceHttpGetStatusCode(req,&result.status)<0){result.platform_error=-3;goto done;}
+  {
+    const int rc=sceHttpGetStatusCode(req,&result.status);
+    int underlying=0;
+    if(sceHttpGetLastErrno(req,&underlying)>=0)result.last_errno=underlying;
+    if(rc<0){result.platform_error=rc;goto done;}
+  }
   if(method=="HEAD")goto done;
   while(result.body.size()<limit) {
     char buffer[8192];

@@ -66,6 +66,35 @@ bool parse_catalog(const std::string& src,Catalog& result,std::string& error) {
   result=std::move(catalog);
   return true;
 }
+bool parse_tmdb_results(const std::string& body,bool tv,std::vector<Item>& items,std::string& error){
+  picojson::value doc;
+  error=picojson::parse(doc,body);
+  if(!error.empty()||!doc.is<picojson::object>()){error="Invalid TMDB JSON";return false;}
+  const auto& o=doc.get<picojson::object>();
+  auto found=o.find("results");
+  if(found==o.end()||!found->second.is<picojson::array>()){error="TMDB results missing";return false;}
+  std::vector<Item> parsed;
+  for(const auto& row:found->second.get<picojson::array>()){
+    if(parsed.size()>=40)break;
+    if(!row.is<picojson::object>())continue;
+    const auto& r=row.get<picojson::object>();
+    Item item;
+    item.tmdb_id=getInt(r,"id");
+    item.title=safeText(get(r,tv?"name":"title"),70);
+    item.overview=safeText(get(r,"overview"),270);
+    const auto date=get(r,tv?"first_air_date":"release_date");
+    item.year=date.size()>=4?safeText(date.substr(0,4),4):std::string{};
+    item.series=tv;
+    auto score=r.find("vote_average");
+    if(score!=r.end()&&score->second.is<double>()&&std::isfinite(score->second.get<double>()))
+      item.rating=std::max(0.f,std::min(10.f,(float)score->second.get<double>()));
+    if(item.tmdb_id<=0||item.title.empty())continue;
+    if(std::none_of(parsed.begin(),parsed.end(),[&](const Item& old){return old.tmdb_id==item.tmdb_id;}))
+      parsed.push_back(std::move(item));
+  }
+  if(parsed.empty()){error="TMDB returned no valid titles";return false;}
+  items=std::move(parsed);error.clear();return true;
+}
 Catalog load_file(const char* path){
   Catalog out;
   FILE* f=std::fopen(path,"rb");

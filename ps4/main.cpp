@@ -22,6 +22,7 @@
 #include "diagnostics.hpp"
 #include "video_player.hpp"
 #include "source_resolver.hpp"
+#include "catalog_online.hpp"
 
 std::stringstream debugLogStream;
 
@@ -181,7 +182,7 @@ void home(Scene2D& s,const Fonts& f,int cardFocus,
     round(s,51,103,139,23,11,{67,49,91});
     txt(s,f,"PLAYTORRIO FOR TV",62,120,{219,206,255},0);
     txt(s,f,"Your next watch.",49,194,paper,5);
-    txt(s,f,"Load your real TV and movie catalog via HostTools on Windows.",52,232,muted,1);
+    txt(s,f,"Fetching TMDB natively; Windows HostTools remains optional.",52,232,muted,1);
     txt(s,f,"HOME       DISCOVER       MY LIST       ADDONS",53,267,{197,177,232},0);
     txt(s,f,"Browse",52,342,paper,3);
     for(int j=0;j<6;j++)featureCard(s,f,53+j*198,368,j,j==cardFocus);
@@ -244,14 +245,14 @@ void section(Scene2D& s,const Fonts& f,int tab,const ptv::Settings& cfg,
     }else{
       heading(s,f,"Discover","Awaiting real TMDB TV and movie catalogs");
       infoBox(s,f,rows[0],"No catalog downloaded",
-              "Run HostTools/Load-Shows.cmd from the emulator ZIP","Not loaded",true);
+              "Native TMDB loading; HostTools is the offline fallback","Not loaded",true);
       infoBox(s,f,rows[1],"Windows shared path",
               "shadPS4/data/playtorrio/catalog.json","Auto-detected");
       infoBox(s,f,rows[2],"TMDB API key",
               cfg.tmdb_api_key.empty()?"Missing in settings.json":"Loaded in settings.json",
               cfg.tmdb_api_key.empty()?"Missing":"Ready");
       infoBox(s,f,rows[3],"Native shadPS4 networking",
-              "The emulator returned transport=-3 for HTTP requests","Unavailable");
+              "Press Triangle: check HTTP status and errno","See log");
       if(!catalog.error.empty())
         txt(s,f,cut(catalog.error,94),73,538,gold,1);
     }
@@ -468,6 +469,26 @@ int main(){
   ptvcatalog::Catalog pendingCatalog;
   std::mutex catalogMutex;
   std::atomic<bool> catalogBusy{false};
+  std::atomic<bool> nativeBusy{false};
+  bool nativeCatalogActive=false;
+  bool pendingNative=false;
+  auto requestNative=[&](const ptv::Settings& config){
+    if(config.tmdb_api_key.empty()||nativeBusy.exchange(true))return;
+    ps4diag::note("CATALOG","BEGIN native TMDB request");
+    std::thread([&,config](){
+      ptvcatalog::Catalog remote;
+      try{remote=ptvcatalog::fetch_online(config);}
+      catch(const std::exception&){remote.error="Native TMDB exception";}
+      catch(...){remote.error="Native TMDB unexpected failure";}
+      {
+        std::lock_guard<std::mutex> lock(catalogMutex);
+        pendingCatalog=std::move(remote);
+        pendingNative=true;
+        catalogReady=true;
+      }
+      nativeBusy.store(false);
+    }).detach();
+  };
   bool catalogReady=false;
   bool catalogTv=true;
   int catalogPage=0;
@@ -478,6 +499,7 @@ int main(){
       {
         std::lock_guard<std::mutex> lock(catalogMutex);
         pendingCatalog=std::move(next);
+        pendingNative=false;
         catalogReady=true;
       }
       catalogBusy.store(false);
@@ -547,7 +569,8 @@ int main(){
       }
       if((pressed&ORBIS_PAD_BUTTON_SQUARE) && tab!=4){
         requestCatalog();
-        ps4diag::note("CATALOG","User requested shared Windows catalog refresh");
+        requestNative(settings);
+        ps4diag::note("CATALOG","User requested native and cached TMDB refresh");
       }
       if((pressed&ORBIS_PAD_BUTTON_TRIANGLE) && !running.exchange(true)){
         // Keep the TV interface responsive while live HTTPS calls execute.
@@ -667,7 +690,8 @@ int main(){
     {
       std::lock_guard<std::mutex> guard(catalogMutex);
       if(catalogReady){
-        if(pendingCatalog.loaded){
+        if(pendingCatalog.loaded && (pendingNative||!nativeCatalogActive)){
+          if(pendingNative)nativeCatalogActive=true;
           if(!catalog.loaded || catalog.updated!=pendingCatalog.updated){
             ps4diag::note("CATALOG","PASS local TMDB TV="+
               std::to_string(pendingCatalog.tv.size())+" movies="+
@@ -677,6 +701,8 @@ int main(){
         }else if(!catalog.loaded){
           catalog.error=pendingCatalog.error;
         }
+        if(pendingNative && !pendingCatalog.loaded)
+          ps4diag::note("CATALOG","FAIL "+pendingCatalog.error);
         catalogReady=false;
       }
     }
@@ -686,6 +712,7 @@ int main(){
         if(pendingSettings.ok()){
           settings=std::move(pendingSettings.settings);
           imported=true;
+          requestNative(settings);
           parseError="Local settings loaded";
         }else{
           // An invalid file never replaces the last working configuration.

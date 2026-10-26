@@ -65,7 +65,11 @@ static bool good(const ps4net::Response& r) {
 }
 static std::string outcome(const ps4net::Response& r){
   return "http="+std::to_string(r.status)+" transport="+
-    std::to_string(r.platform_error)+" bounded="+std::to_string((int)!r.truncated);
+    std::to_string(r.platform_error)+" errno="+std::to_string(r.last_errno)+
+    " bytes="+std::to_string(r.body.size())+
+    " format="+(r.body.empty()?"empty":r.body[0]=='{'||r.body[0]=='['?"json":
+                r.body[0]=='<'?"html":"other")+
+    " bounded="+std::to_string((int)!r.truncated);
 }
 Summary run(const ptv::Settings& cfg,bool githubWriteCheck){
   Summary s;
@@ -81,6 +85,12 @@ Summary run(const ptv::Settings& cfg,bool githubWriteCheck){
     skip(s,"PLAYBACK","No compiled decoding backend");
     note("SUMMARY","passed="+std::to_string(s.passed)+" failed="+std::to_string(s.failed));
     return s;
+  }
+  // Public control endpoint: no credentials or response bodies are logged.
+  {
+    const auto probe=ps4net::request("https://example.com/","GET",{},"",16384);
+    mark(s,"HTTP_PROBE",probe.status==200&&probe.platform_error==0,
+         "public HTTPS endpoint "+outcome(probe));
   }
   // Verify the TMDB v3 key using an application-level request.
   // Never print a URL with the api_key query parameter, or any response body.

@@ -24,5 +24,12 @@ int main(){
   remove(file);
   auto missing=load_file(file);
   assert(!missing.loaded&&!missing.error.empty());
-  puts("TMDB catalog parser tests passed");
+  std::vector<Item> remote;
+  assert(parse_tmdb_results(R"({"results":[{"id":15,"name":"A Show","first_air_date":"2026-10-27","vote_average":8.1},{"id":15,"name":"Duplicate"},{"id":16,"name":"Next Show"}]})",true,remote,error));
+  assert(remote.size()==2 && remote[0].title=="A Show" && remote[0].year=="2026");
+  assert(parse_tmdb_results(R"({"results":[{"id":99,"title":"Movie 99","release_date":"2020-01-01","vote_average":6.1}]})",false,remote,error));
+  assert(remote.size()==1 && !remote[0].series && remote[0].title=="Movie 99");
+  assert(!parse_tmdb_results(R"({"not_results":[]})",true,remote,error));
+  assert(remote.size()==1);
+  puts("TMDB file and native API parsing tests passed");
 }

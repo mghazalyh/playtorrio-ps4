@@ -16,4 +16,5 @@ struct Catalog {
 };
 bool parse_catalog(const std::string& src,Catalog& result,std::string& error);
 Catalog load_file(const char* path);
+bool parse_tmdb_results(const std::string& body,bool tv,std::vector<Item>& items,std::string& error);
 }
