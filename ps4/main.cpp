@@ -278,6 +278,8 @@ void sourcePage(Scene2D& s,const Fonts& f,const ptvcatalog::Item& item,
     txt(s,f,c.direct?"READY":"RESOLVE WHEN SELECTED",990,y+36,
         c.direct?green:muted,0);
   }
+  if(!fetching&&!error.empty()&&!choices.entries.empty())
+    txt(s,f,cut(error,111),61,645,gold,0);
   txt(s,f,"UP / DOWN: source   L2/R2: page   X: play   Circle: episodes/details",
       62,671,muted,0);
 }
