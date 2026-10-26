@@ -15,8 +15,9 @@ jobs:
     steps:
       - name: Install emulator host prerequisites
         run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq unzip xvfb mesa-vulkan-drivers vulkan-tools libvulkan1
+          # Ubuntu hosted runners have fresh apt indexes. Avoid long updates
+          # that can hang on unreliable package mirrors.
+          sudo timeout 130s apt-get install -y -qq unzip xvfb mesa-vulkan-drivers vulkan-tools libvulkan1
       - name: Run actual emulator boot attempt
         id: boot
         continue-on-error: true
