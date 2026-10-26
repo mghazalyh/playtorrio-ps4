@@ -60,3 +60,29 @@ pkg="$(find . -maxdepth 2 -type f -name '*.pkg' -print -quit)"
 test -n "$pkg" && test -s "$pkg" || { echo "OpenOrbis did not produce a PKG" >&2; exit 3; }
 cp "$pkg" "$OLDPWD/dist/PlayTorrio-PS4-GoldHEN-10.01-EXPERIMENTAL.pkg"
 file "$OLDPWD/dist/PlayTorrio-PS4-GoldHEN-10.01-EXPERIMENTAL.pkg"
+
+# shadPS4 QtLauncher v397 no longer has Install Packages. Supply the
+# exact UNPACKED homebrew files, preserving /app0 relative paths.
+python3 - "$work/stage" "$OLDPWD/dist/PlayTorrio-PS4-shadPS4-extracted.zip" <<'PY'
+import pathlib, sys, zipfile
+stage = pathlib.Path(sys.argv[1])
+dest = pathlib.Path(sys.argv[2])
+members = ["eboot.bin", "sce_sys/param.sfo", "sce_sys/icon0.png"]
+for member in members:
+    if not (stage / member).is_file():
+        raise SystemExit(f"Missing extracted game file: {member}")
+with zipfile.ZipFile(dest, "w", zipfile.ZIP_DEFLATED) as z:
+    for base in ("eboot.bin", "sce_sys", "sce_module", "assets"):
+        path = stage / base
+        paths = [path] if path.is_file() else sorted(path.rglob("*"))
+        for f in paths:
+            if f.is_file():
+                z.write(f, "BREW20346/" + f.relative_to(stage).as_posix())
+with zipfile.ZipFile(dest) as z:
+    for required in ("BREW20346/eboot.bin", "BREW20346/sce_sys/param.sfo",
+                     "BREW20346/assets/fonts/Gontserrat-Regular.ttf"):
+        if required not in z.namelist() or not z.getinfo(required).file_size:
+            raise SystemExit(f"Invalid emulator ZIP: {required} missing")
+print(f"Emulator-ready unpacked PS4 game folder: {dest} ({dest.stat().st_size} bytes)")
+PY
+
