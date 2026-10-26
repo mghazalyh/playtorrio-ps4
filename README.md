@@ -15,7 +15,7 @@ The PS4 app is a **separate native client**. Feature contracts are tracked in [F
 ## Account and settings import
 Set up `/data/playtorrio/settings.json` **using PS4 FTP** (GoldHEN) or copy it through a homebrew file manager. See `config/settings.example.json`. This file and all tokens must remain on the console. Settings importer accepts addon `manifestUrl`, `transportUrl` and `stremio://` URLs, and GitHub repo/branch options; credentials never go into public GitHub.
 
-A full settings import UI and the native network/playback adapter are still in development.
+On the PS4 Settings tab, press **Square** (or X on Import Settings) to read `playtorrio/settings.json` or `playtorrio-settings.json` from USB0/USB1 and install it at `/data/playtorrio/settings.json` (private file mode). External network configuration and video playback are still under development.
 
 ## Native development
 ```sh
