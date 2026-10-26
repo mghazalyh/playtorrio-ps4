@@ -9,6 +9,9 @@
 #include <algorithm>
 #include <sys/stat.h>
 #include <cerrno>
+#include <thread>
+#include <mutex>
+#include <atomic>
 #include <orbis/libkernel.h>
 #include <orbis/Pad.h>
 #include <orbis/UserService.h>
@@ -270,9 +273,10 @@ bool importUsb(ptv::Settings& settings,std::string& message){
   return false;
 }
 void diagnosticBand(Scene2D& s,const Fonts& f,const ps4diag::Summary& report,
-                    bool ran,bool logging) {
+                    bool ran,bool logging,bool testing) {
   round(s,51,648,1176,29,9,{29,31,44});
-  const std::string label=ran?
+  const std::string label=testing?"TESTING NETWORK SERVICES, PLEASE WATCH FTP LOG..."
+    :ran?
     ("NETWORK TEST: "+std::to_string(report.passed)+" PASS  "+
      std::to_string(report.failed)+" FAIL  "+
      std::to_string(report.skipped)+" SKIP   STREAMS "+
@@ -334,6 +338,8 @@ int main(){
   ps4diag::note("BOOT","Native dashboard initialized; press TRIANGLE to test network");
   int tab=0,focus=0,frame=0;
   ps4diag::Summary diagnostic;
+  std::mutex diagnosticMutex;
+  std::atomic<bool> running{false};
   bool tested=false;
   uint32_t previous=0;
   while(true){
@@ -341,12 +347,21 @@ int main(){
     if(pad>=0&&scePadReadState(pad,&data)>=0){
       uint32_t pressed=data.buttons&~previous;
       previous=data.buttons;
-      if(pressed&ORBIS_PAD_BUTTON_TRIANGLE){
-        // Synchronous suite; persistent per-request flushing makes it useful
-        // even when a firmware-specific network API hangs or the app crashes.
-        ps4diag::note("CONTROL","User requested full diagnostics");
-        diagnostic=ps4diag::run(settings,true);
-        tested=true;
+      if((pressed&ORBIS_PAD_BUTTON_TRIANGLE) && !running.exchange(true)){
+        // Keep the TV interface responsive while live HTTPS calls execute.
+        // The worker owns a snapshot of settings and publishes the result
+        // under mutex; it never touches the graphics API.
+        const auto snapshot=settings;
+        std::thread([&,snapshot](){
+          ps4diag::note("CONTROL","User requested full diagnostics");
+          auto result=ps4diag::run(snapshot,true);
+          {
+            std::lock_guard<std::mutex> guard(diagnosticMutex);
+            diagnostic=std::move(result);
+            tested=true;
+          }
+          running.store(false);
+        }).detach();
       }
       if(pressed&ORBIS_PAD_BUTTON_R1){tab=(tab+1)%5;focus=0;}
       if(pressed&ORBIS_PAD_BUTTON_L1){tab=(tab+4)%5;focus=0;}
@@ -368,8 +383,8 @@ int main(){
           focus=(focus+5)%6;
       }
       if(pressed&ORBIS_PAD_BUTTON_CIRCLE){tab=0;focus=0;}
-      if((pressed&ORBIS_PAD_BUTTON_SQUARE && tab==4)||
-         (pressed&ORBIS_PAD_BUTTON_CROSS && tab==4 && focus==0)){
+      if(!running.load() && ((pressed&ORBIS_PAD_BUTTON_SQUARE && tab==4)||
+         (pressed&ORBIS_PAD_BUTTON_CROSS && tab==4 && focus==0))){
         std::string result;
         imported=importUsb(settings,result);
         parseError=result;
@@ -386,13 +401,20 @@ int main(){
         parseError="Addon fetching is not yet implemented on PS4";
       }
     }
+    ps4diag::Summary snapshot;
+    bool completed=false;
+    {
+      std::lock_guard<std::mutex> guard(diagnosticMutex);
+      snapshot=diagnostic;
+      completed=tested;
+    }
     if(tab==0)home(*screen,fonts,focus);
     else{
       screen->FrameBufferFill(bg);
-      section(*screen,fonts,tab,settings,imported,focus,parseError,diagnostic);
+      section(*screen,fonts,tab,settings,imported,focus,parseError,snapshot);
     }
     nav(*screen,fonts,tab);
-    diagnosticBand(*screen,fonts,diagnostic,tested,logging);
+    diagnosticBand(*screen,fonts,snapshot,completed,logging,running.load());
     footer(*screen,fonts,tab,focus);
     screen->SubmitFlip(frame);
     screen->FrameWait(frame);
