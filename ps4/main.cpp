@@ -23,6 +23,8 @@
 #include "video_player.hpp"
 #include "source_resolver.hpp"
 #include "catalog_online.hpp"
+#include "poster_cache.hpp"
+#include "../src/show_details.hpp"
 
 std::stringstream debugLogStream;
 
@@ -175,7 +177,111 @@ void catalogTile(Scene2D& s,const Fonts& f,int x,int y,
   }
   if(selected)rect(s,x+13,y+h-4,w-26,2,{242,220,255});
 }
-void home(Scene2D& s,const Fonts& f,int cardFocus,
+
+void artworkCard(Scene2D& scene,const Fonts& fonts,ps4art::Cache& art,
+                 const ptvcatalog::Item& item,int x,int y,int width,int height,
+                 bool selected,bool showTitle=true){
+  round(scene,x-3,y-3,width+6,height+6,8,selected?purple:line);
+  round(scene,x,y,width,height,6,item.series?C{35,46,74}:C{57,36,61});
+  if(!art.draw(scene,item.poster_path,x+3,y+3,width-6,height-6)){
+    // Placeholder is replaced asynchronously when remote TMDB artwork arrives.
+    round(scene,x+12,y+12,width-24,25,8,{23,28,41});
+    txt(scene,fonts,item.series?"TV":"MOVIE",x+21,y+30,{215,206,252},0);
+    txt(scene,fonts,cut(item.title,15),x+14,y+height/2,paper,1);
+  }
+  if(selected){
+    rect(scene,x+6,y+height-6,width-12,4,gold);
+    round(scene,x+width-39,y+9,29,26,11,purple);
+    txt(scene,fonts,"X",x+width-29,y+28,paper,0);
+  }
+  if(showTitle){
+    round(scene,x+1,y+height-36,width-2,35,3,{11,15,25});
+    txt(scene,fonts,cut(item.title,(size_t)std::max(10,width/11)),x+10,y+height-11,paper,1);
+  }
+}
+void detailsPage(Scene2D& s,const Fonts& f,ps4art::Cache& art,
+    const ptvcatalog::Item& item,const std::vector<ptvdetail::Season>& seasons,
+    const std::vector<ptvdetail::Episode>& episodes,int seasonPos,int episodePos,
+    int episodePage,bool loading,const std::string& error){
+  rect(s,0,76,1280,607,{10,13,24});
+  txt(s,f,item.series?"SERIES / EPISODES":"MOVIE / DETAILS",56,121,purple,1);
+  artworkCard(s,f,art,item,57,153,223,323,false,false);
+  txt(s,f,cut(item.title,36),322,169,paper,4);
+  txt(s,f,item.year+"    TMDB "+std::to_string((int)(item.rating*10)/10)+"."+
+    std::to_string((int)(item.rating*10)%10)+" / 10",323,206,gold,1);
+  txt(s,f,cut(item.overview,93),322,248,muted,1);
+  if(item.overview.size()>93)txt(s,f,cut(item.overview.substr(93),93),322,276,muted,1);
+  if(item.overview.size()>186)txt(s,f,cut(item.overview.substr(186),93),322,304,muted,1);
+  if(loading)txt(s,f,"Fetching seasons, episodes or streams...",326,349,gold,1);
+  else if(!error.empty())txt(s,f,cut(error,86),327,345,gold,1);
+  if(!item.series){
+    round(s,320,393,570,96,16,{56,39,89});
+    txt(s,f,"CHOOSE STREAM SOURCE",349,445,paper,3);
+    txt(s,f,"Press X to compare available sources",323,538,muted,1);
+  }else{
+    txt(s,f,"SEASONS  |  L2 / R2 to change",323,357,paper,2);
+    for(int i=0;i<(int)seasons.size()&&i<7;i++){
+      // Window around active season prevents long-running TV shows overflowing.
+      const int first=std::max(0,seasonPos-3);
+      const int idx=first+i;
+      if(idx>=(int)seasons.size())break;
+      const bool active=idx==seasonPos;
+      round(s,323+i*126,374,115,42,9,active?purple:C{32,38,57});
+      txt(s,f,"Season "+std::to_string(seasons[idx].number),
+          335+i*126,401,paper,1);
+    }
+    txt(s,f,"EPISODES  |  D-Pad to select  /  X to view sources",322,456,paper,1);
+    for(int j=0;j<6;j++){
+      int index=episodePage*6+j;
+      if(index>=(int)episodes.size())break;
+      const auto& e=episodes[index];
+      const int y=470+j*30;
+      round(s,324,y,862,27,5,index==episodePos?C{69,47,107}:C{25,30,47});
+      txt(s,f,"E"+std::to_string(e.number)+"  "+cut(e.title,63),342,y+19,
+          index==episodePos?paper:muted,1);
+      if(index==episodePos)rect(s,325,y+2,3,23,gold);
+    }
+    txt(s,f,std::to_string(episodes.size())+" episodes  /  page "+
+        std::to_string(episodePage+1),1028,453,green,0);
+  }
+  txt(s,f,"Circle: Back to browsing",70,580,muted,1);
+}
+std::string sourceLabel(const ptv::Stream& stream){
+  std::string text=stream.name.empty()?stream.title:stream.name+"  "+stream.title;
+  std::string safe;
+  for(unsigned char c:text){
+    if(safe.size()>=110)break;
+    if(c>=32&&c<127)safe.push_back((char)c);
+    else if(c=='\n'||c=='\r')safe.push_back(' ');
+  }
+  return safe.empty()?"Unnamed stream source":safe;
+}
+void sourcePage(Scene2D& s,const Fonts& f,const ptvcatalog::Item& item,
+   const ps4source::Choices& choices,int focus,int page,bool fetching,
+   const std::string& error){
+  rect(s,0,76,1280,608,{9,13,23});
+  txt(s,f,"STREAM SOURCES  /  "+cut(item.title,39),57,126,paper,4);
+  txt(s,f,"Choose a source. Direct HTTPS or TorBox; higher-quality matches listed first.",
+      61,166,muted,1);
+  if(fetching)txt(s,f,"Searching your installed Stremio addons...",61,245,gold,2);
+  else if(choices.entries.empty())txt(s,f,"No compatible sources. "+cut(error,63),61,245,gold,1);
+  for(int row=0;row<7;row++){
+    const int index=page*7+row;
+    if(index>=(int)choices.entries.size())break;
+    const auto& c=choices.entries[index];
+    const int y=190+row*62;
+    round(s,52,y,1176,54,10,index==focus?C{65,46,96}:card);
+    if(index==focus)rect(s,54,y+7,4,40,gold);
+    txt(s,f,cut(sourceLabel(c.stream),86),73,y+23,paper,1);
+    txt(s,f,c.direct?"DIRECT HTTPS":"TORBOX / ON-DEMAND",74,y+44,
+        c.direct?green:gold,0);
+    txt(s,f,c.direct?"READY":"RESOLVE WHEN SELECTED",990,y+36,
+        c.direct?green:muted,0);
+  }
+  txt(s,f,"UP / DOWN: source   L2/R2: page   X: play   Circle: episodes/details",
+      62,671,muted,0);
+}
+void home(Scene2D& s,const Fonts& f,ps4art::Cache& art,int cardFocus,
           const ps4diag::Summary& diag,const ptvcatalog::Catalog& catalog){
   if(!catalog.loaded){
     stripe(s);
@@ -192,21 +298,21 @@ void home(Scene2D& s,const Fonts& f,int cardFocus,
   }
   stripe(s);
   const auto& featured=!catalog.tv.empty()?catalog.tv.front():catalog.movies.front();
-  round(s,52,99,119,25,12,{65,44,96});
-  txt(s,f,"TRENDING NOW",67,116,{220,204,255},0);
-  txt(s,f,cut(featured.title,29),52,185,paper,5);
-  txt(s,f,cut(featured.overview,77),53,232,muted,1);
-  txt(s,f,cut(featured.overview.size()>77?
-          featured.overview.substr(77):std::string{},83),53,255,muted,1);
-  txt(s,f,"TV SERIES  |  LIVE TMDB CATALOG",53,284,{209,188,248},0);
-  txt(s,f,"Trending TV shows",52,337,paper,3);
-  txt(s,f,std::to_string(catalog.tv.size())+" shows loaded",1014,337,green,1);
-  for(int n=0;n<6 && n<(int)catalog.tv.size();n++)
-    catalogTile(s,f,53+n*198,365,catalog.tv[n],cardFocus==n);
-  txt(s,f,"Popular movies",52,557,paper,3);
-  txt(s,f,std::to_string(catalog.movies.size())+" movies loaded",1000,557,green,1);
-  for(int n=0;n<6 && n<(int)catalog.movies.size();n++)
-    catalogTile(s,f,53+n*198,574,catalog.movies[n],cardFocus==n+6,true);
+  round(s,51,95,150,24,12,{69,43,95});
+  txt(s,f,"TRENDING ON TV",67,112,paper,0);
+  txt(s,f,cut(featured.title,32),52,180,paper,5);
+  txt(s,f,cut(featured.overview,90),53,218,muted,1);
+  txt(s,f,cut(featured.overview.size()>90?featured.overview.substr(90):"",90),53,244,muted,1);
+  txt(s,f,"SELECT A POSTER TO OPEN SHOW DETAILS",53,279,gold,0);
+  txt(s,f,"Trending series",52,341,paper,3);
+  txt(s,f,std::to_string(catalog.tv.size())+" shows",1107,341,green,1);
+  for(int j=0;j<6&&j<(int)catalog.tv.size();j++)
+    artworkCard(s,f,art,catalog.tv[j],54+j*199,363,170,202,j==cardFocus);
+  txt(s,f,"Popular movies",52,605,paper,3);
+  for(int j=0;j<6&&j<(int)catalog.movies.size();j++){
+    round(s,54+j*199,615,170,37,6,j+6==cardFocus?C{64,43,96}:card);
+    txt(s,f,cut(catalog.movies[j].title,17),64+j*199,639,paper,0);
+  }
 }
 void infoBox(Scene2D& s,const Fonts& f,int y,const std::string& name,
              const std::string& description,const std::string& info,
@@ -222,26 +328,33 @@ void infoBox(Scene2D& s,const Fonts& f,int y,const std::string& name,
 void section(Scene2D& s,const Fonts& f,int tab,const ptv::Settings& cfg,
              bool loaded,int selection,const std::string& error,
              const ps4diag::Summary& diag,const ptvcatalog::Catalog& catalog,
-             bool tvMode,int page){
+             bool tvMode,int page,ps4art::Cache& art){
   // Six complete, compact rows on a 720p television (was three).
   const int rows[]={173,255,337,419,501,583};
   if(tab==1){
     if(catalog.loaded){
       const auto& items=tvMode?catalog.tv:catalog.movies;
-      heading(s,f,tvMode?"Discover / TV Shows":"Discover / Movies",
-              "Real TMDB titles | D-Pad left/right: category | L2/R2: page");
-      for(int n=0;n<6;n++){
-        const int index=page*6+n;
+      heading(s,f,tvMode?"Discover  /  TV SERIES":"Discover  /  MOVIES",
+        "LEFT / RIGHT: type     L2 / R2: page     X: details");
+      for(int j=0;j<6;j++){
+        const int index=page*6+j;
         if(index>=(int)items.size())break;
-        const auto& item=items[index];
-        infoBox(s,f,rows[n],cut(item.title,54),
-               cut(item.overview.empty()?"No overview from TMDB":item.overview,90),
-               item.year+"   "+std::to_string((int)item.rating)+"/10",
-               n==selection);
+        artworkCard(s,f,art,items[index],54+j*199,191,171,267,j==selection);
+      }
+      const int selected=page*6+selection;
+      if(selected>=0&&selected<(int)items.size()){
+        const auto& item=items[selected];
+        round(s,54,492,1171,126,13,{22,28,47});
+        txt(s,f,cut(item.title,52),72,525,paper,3);
+        txt(s,f,item.year+"   TMDB "+std::to_string((int)item.rating)+"/10",
+            956,526,gold,1);
+        txt(s,f,cut(item.overview,118),72,558,muted,1);
+        if(item.overview.size()>118)
+          txt(s,f,cut(item.overview.substr(118),115),72,587,muted,1);
       }
       txt(s,f,"PAGE "+std::to_string(page+1)+" / "+
-          std::to_string(std::max(1,((int)items.size()+5)/6)),
-          1028,155,green,1);
+           std::to_string(std::max(1,((int)items.size()+5)/6)),
+           1037,159,green,1);
     }else{
       heading(s,f,"Discover","Awaiting real TMDB TV and movie catalogs");
       infoBox(s,f,rows[0],"No catalog downloaded",
