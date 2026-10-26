@@ -18,6 +18,8 @@
 #include "graphics.h"
 #include "../src/core.hpp"
 #include "diagnostics.hpp"
+#include "video_player.hpp"
+#include "source_resolver.hpp"
 
 std::stringstream debugLogStream;
 
@@ -341,12 +343,46 @@ int main(){
   std::mutex diagnosticMutex;
   std::atomic<bool> running{false};
   bool tested=false;
+  ps4video::Player player;
+  bool viewing=false;
+  bool overlay=true;
+  std::atomic<bool> sourceBusy{false};
+  std::mutex sourceMutex;
+  std::string preparedUrl, preparedError;
+  bool sourceReady=false;
+  auto requestPlayback=[&](std::string mediaType,std::string mediaId){
+    if(viewing||sourceBusy.exchange(true))return;
+    preparedError.clear();
+    const auto config=settings;
+    ps4diag::note("CONTROL","Requesting playable video from local sources");
+    std::thread([&,config,mediaType,mediaId](){
+      auto found=ps4source::resolve(config,mediaType,mediaId);
+      {
+        std::lock_guard<std::mutex> guard(sourceMutex);
+        preparedUrl=std::move(found.url);
+        preparedError=found.reason;
+        sourceReady=true;
+      }
+      sourceBusy.store(false);
+    }).detach();
+  };
   uint32_t previous=0;
   while(true){
     OrbisPadData data={};
     if(pad>=0&&scePadReadState(pad,&data)>=0){
       uint32_t pressed=data.buttons&~previous;
       previous=data.buttons;
+      if(viewing){
+        if(pressed&ORBIS_PAD_BUTTON_CIRCLE){
+          player.close();viewing=false;overlay=true;
+          ps4diag::note("PLAYBACK","STOP user exited video");
+        }else if(pressed&(ORBIS_PAD_BUTTON_CROSS|ORBIS_PAD_BUTTON_SQUARE)){
+          player.pauseToggle();overlay=true;
+        }else if(pressed&ORBIS_PAD_BUTTON_TRIANGLE){
+          overlay=!overlay;
+        }
+        pressed=0;
+      }
       if((pressed&ORBIS_PAD_BUTTON_TRIANGLE) && !running.exchange(true)){
         // Keep the TV interface responsive while live HTTPS calls execute.
         // The worker owns a snapshot of settings and publishes the result
@@ -392,13 +428,21 @@ int main(){
           "PASS local USB settings installed":"FAIL missing/invalid USB settings");
       }
       if(pressed&ORBIS_PAD_BUTTON_CROSS && tab==1){
-        parseError="Catalog connection is not included in this preview";
+        requestPlayback(focus==1?"series":"movie",settings.diagnostic_id);
       }
       if(pressed&ORBIS_PAD_BUTTON_CROSS && tab==2){
-        parseError="GitHub live sync is not yet implemented on PS4";
+        std::string type="movie",id;
+        {
+          std::lock_guard<std::mutex> guard(diagnosticMutex);
+          if(focus>=1 && focus-1<(int)diagnostic.preview_ids.size()){
+            id=diagnostic.preview_ids[focus-1];
+            type=diagnostic.preview_types[focus-1];
+          }
+        }
+        requestPlayback(type,id);
       }
       if(pressed&ORBIS_PAD_BUTTON_CROSS && tab==3){
-        parseError="Addon fetching is not yet implemented on PS4";
+        requestPlayback(settings.diagnostic_type,settings.diagnostic_id);
       }
     }
     ps4diag::Summary snapshot;
@@ -408,14 +452,61 @@ int main(){
       snapshot=diagnostic;
       completed=tested;
     }
-    if(tab==0)home(*screen,fonts,focus);
-    else{
-      screen->FrameBufferFill(bg);
-      section(*screen,fonts,tab,settings,imported,focus,parseError,snapshot);
+    // Transfer a successfully resolved URL on the render thread, where the
+    // decoder's lifetime is managed. The secret URL is never shown/logged.
+    std::string openingUrl,openingStatus;
+    bool hasReady=false;
+    {
+      std::lock_guard<std::mutex> lock(sourceMutex);
+      if(sourceReady){
+        openingUrl.swap(preparedUrl);
+        openingStatus.swap(preparedError);
+        sourceReady=false;hasReady=true;
+      }
     }
-    nav(*screen,fonts,tab);
-    diagnosticBand(*screen,fonts,snapshot,completed,logging,running.load());
-    footer(*screen,fonts,tab,focus);
+    if(hasReady){
+      if(openingUrl.empty()){
+        parseError=openingStatus;
+        ps4diag::note("PLAYBACK","FAIL resolution did not yield a supported stream");
+      }else{
+        std::string failure;
+        if(player.start(openingUrl,failure)){
+          viewing=true;overlay=true;
+          ps4diag::note("PLAYBACK","START AvPlayer video session");
+        }else parseError=failure;
+      }
+    }
+    if(viewing){
+      screen->FrameBufferFill(bg);
+      bool frameDrawn=player.render(*screen);
+      if(overlay || player.state()!=ps4video::Player::Status::Playing){
+        round(*screen,25,24,650,78,12,{24,28,39});
+        txt(*screen,fonts,"PlayTorrio - PS4 hardware video",48,56,paper,3);
+        txt(*screen,fonts,"X/Square: Pause   Circle: Back   Triangle: Hide UI",48,87,muted,1);
+        if(player.state()==ps4video::Player::Status::Opening)
+          txt(*screen,fonts,"Buffering stream...",65,135,gold,2);
+        if(player.state()==ps4video::Player::Status::Ended)
+          txt(*screen,fonts,"Stream ended. Circle to exit.",65,135,gold,2);
+        if(player.state()==ps4video::Player::Status::Failed)
+          txt(*screen,fonts,"Hardware decoder error. Circle to exit.",65,135,gold,2);
+      }
+      (void)frameDrawn;
+    }else{
+      if(tab==0)home(*screen,fonts,focus);
+      else{
+        screen->FrameBufferFill(bg);
+        section(*screen,fonts,tab,settings,imported,focus,parseError,snapshot);
+      }
+      nav(*screen,fonts,tab);
+      diagnosticBand(*screen,fonts,snapshot,completed,logging,running.load());
+      footer(*screen,fonts,tab,focus);
+      if(sourceBusy.load()){
+        round(*screen,240,275,800,100,12,{32,30,47});
+        txt(*screen,fonts,"Searching Torrentio / TorBox for a playable stream...",269,335,paper,2);
+      }else if(!parseError.empty()){
+        txt(*screen,fonts,cut(parseError,78),65,641,gold,0);
+      }
+    }
     screen->SubmitFlip(frame);
     screen->FrameWait(frame);
     screen->FrameBufferSwap();
