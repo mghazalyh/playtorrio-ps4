@@ -299,6 +299,8 @@ void footer(Scene2D& s,const Fonts& f,int tab,int focus){
 }
 
 int main(){
+  const bool logging=ps4diag::start_logging();
+  ps4diag::note("BOOT","Entering native PS4 startup checks");
   ptv::Settings settings;std::string parseError;
   auto source=readConfig();
   bool imported=!source.empty()&&ptv::import_settings(source,settings,parseError);
@@ -310,7 +312,11 @@ int main(){
   int user=-1;sceUserServiceGetInitialUser(&user);
   int pad=scePadOpen(user,0,0,nullptr);
   Scene2D* screen=new Scene2D(1280,720,4);
-  if(!screen->Init(0xC000000,2))return 1;
+  if(!screen->Init(0xC000000,2)){
+    ps4diag::note("BOOT","FAIL OpenOrbis Scene2D initialized with error");
+    return 1;
+  }
+  ps4diag::note("BOOT","PASS Scene2D initialized");
 
   const char* fontPath="/app0/assets/fonts/Gontserrat-Regular.ttf";
   Fonts fonts;
@@ -319,10 +325,13 @@ int main(){
      !screen->InitFont(&fonts.base,fontPath,23)||
      !screen->InitFont(&fonts.md,fontPath,28)||
      !screen->InitFont(&fonts.lg,fontPath,35)||
-     !screen->InitFont(&fonts.xl,fontPath,52))return 2;
+     !screen->InitFont(&fonts.xl,fontPath,52)){
+    ps4diag::note("BOOT","FAIL OpenOrbis FreeType font initialization");
+    return 2;
+  }
+  ps4diag::note("BOOT","PASS Gontserrat UI fonts loaded");
 
-  const bool logging=ps4diag::start_logging();
-  ps4diag::note("BOOT","Native application launched; use TRIANGLE to run all network checks");
+  ps4diag::note("BOOT","Native dashboard initialized; press TRIANGLE to test network");
   int tab=0,focus=0,frame=0;
   ps4diag::Summary diagnostic;
   bool tested=false;
