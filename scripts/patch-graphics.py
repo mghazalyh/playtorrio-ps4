@@ -10,8 +10,8 @@ We patch only the SDK copy for this build, never modify system SDK.
 from pathlib import Path
 import sys
 
-if len(sys.argv) != 3:
-    raise SystemExit("usage: patch-graphics.py SDK-graphics.cpp OUTPUT.cpp")
+if len(sys.argv) != 5:
+    raise SystemExit("usage: patch-graphics.py SDK-graphics.cpp SDK-graphics.h OUTPUT.cpp OUTPUT.h")
 src = Path(sys.argv[1]).read_text()
 start_marker = "                // Decode the 8-bit bitmap"
 end_marker = "            }\n        }\n\n        // Increment x offset"
@@ -52,5 +52,27 @@ fix = r"""                // FreeType's grayscale coverage is UNSIGNED. The orig
 out = src[:start] + fix + src[end:]
 if "const uint8_t coverage" not in out or out.count("this->DrawPixel(x, y, Color{rr, gg, bb});") != 1:
     raise SystemExit("Anti-alias fix failed to apply")
-Path(sys.argv[2]).write_text(out)
-print("Patched OpenOrbis FreeType: unsigned coverage + write-only background blending")
+# Add a video presentation API to a build-local copy of the SDK sample.
+header = Path(sys.argv[2]).read_text()
+needle = "void DrawPixel(int x, int y, Color color);"
+if header.count(needle) != 1:
+    raise SystemExit("OpenOrbis graphics.h unexpected layout")
+header = header.replace(needle,
+    "void BlitRgb32(const uint32_t* src,int x,int y,int w,int h);\n\t" + needle)
+out += """
+#include <cstring>
+void Scene2D::BlitRgb32(const uint32_t* src,int x,int y,int w,int h) {
+    if (!src || x<0 || y<0 || w<=0 || h<=0 ||
+        x>this->width || y>this->height ||
+        w>this->width-x || h>this->height-y) return;
+    uint32_t* buffer = reinterpret_cast<uint32_t*>(
+        this->frameBuffers[this->activeFrameBufferIdx]);
+    for (int row=0;row<h;row++) {
+        std::memcpy(buffer+(size_t)(y+row)*this->width+x,
+                    src+(size_t)row*w,(size_t)w*sizeof(uint32_t));
+    }
+}
+"""
+Path(sys.argv[3]).write_text(out)
+Path(sys.argv[4]).write_text(header)
+print("Patched local graphics copies: font blending and row-wise RGB32 blit")
