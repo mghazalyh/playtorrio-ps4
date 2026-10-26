@@ -23,3 +23,5 @@ Only mark an entry complete after tests plus real PS4 verification.
 ### Integration log and user verification
 
 The v0.4 GoldHEN build writes `/data/playtorrio/logs/diagnostics.log`. Press Triangle from any tab to run the real HTTP integration checks and retrieve the file over FTP. No one has verified these API operations on a physical PS4 yet. Do not call tests passing in CI equivalent to console streaming success.
+
+Native PlayTorrio PS4 v0.5 includes a read-only list of titles fetched from private GitHub storage after Triangle. Video playback and subtitle selection are still not implemented.
