@@ -1,0 +1,20 @@
+name: Windows TMDB catalog bridge regression test
+on:
+  push:
+    branches: [main]
+    paths:
+      - HostTools/**
+      - tests/windows_catalog_test.ps1
+      - .github/workflows/windows-catalog-test.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  mock-tmdb:
+    runs-on: windows-2022
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Test Windows TMDB updater without real credentials or network
+        shell: pwsh
+        run: ./tests/windows_catalog_test.ps1
