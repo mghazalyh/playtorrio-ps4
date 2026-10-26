@@ -150,7 +150,8 @@ void infoBox(Scene2D& s,const Fonts& f,int y,const std::string& name,
     txt(s,f,cut(info,23),1010,y+37,highlighted?green:muted,0);
 }
 void section(Scene2D& s,const Fonts& f,int tab,const ptv::Settings& cfg,
-             bool loaded,int selection,const std::string& error){
+             bool loaded,int selection,const std::string& error,
+             const ps4diag::Summary& diag){
   // Six complete, compact rows on a 720p television (was three).
   const int rows[]={173,255,337,419,501,583};
   if(tab==1){
@@ -162,15 +163,33 @@ void section(Scene2D& s,const Fonts& f,int tab,const ptv::Settings& cfg,
     infoBox(s,f,rows[4],"English audio and subtitles","Language-first playback preferences","Coming soon",selection==4);
     infoBox(s,f,rows[5],"Next episode","Continuous series playback","Coming soon",selection==5);
   }else if(tab==2){
-    heading(s,f,"My List","Your shared private GitHub watchlist");
-    infoBox(s,f,rows[0],"Repository","GitHub data source",cut(cfg.github_repo,23),selection==0);
-    infoBox(s,f,rows[1],"Database","playtorrio/watchlist-v1.json","Schema ready",selection==1);
-    infoBox(s,f,rows[2],"Authentication",cfg.github_token.empty()?
-            "Key not imported":"GitHub key stored in local settings",
-            cfg.github_token.empty()?"Missing":"Imported",selection==2);
-    infoBox(s,f,rows[3],"Offline changes","Pending additions and removals","Coming soon",selection==3);
-    infoBox(s,f,rows[4],"Device synchronization","Live GitHub HTTP adapter","Not connected",selection==4);
-    infoBox(s,f,rows[5],"Shared history","Playback progress sync","Not available",selection==5);
+    heading(s,f,"My List","Live read from your private GitHub watchlist");
+    if(diag.library_titles>0){
+      infoBox(s,f,rows[0],"Private watchlist",
+          "Fetched via authenticated GitHub API",
+          std::to_string(diag.library_titles)+" titles",selection==0);
+      for(int i=0;i<5;i++){
+        bool has=i<(int)diag.preview_titles.size();
+        const std::string title=has?cut(diag.preview_titles[i],61):"More saved titles...";
+        infoBox(s,f,rows[i+1],has?title:"Library",
+                has?"Present in your private GitHub library":"Run Triangle to refresh your library",
+                has?"Synced":"",selection==i+1);
+      }
+    }else{
+      infoBox(s,f,rows[0],"Repository","GitHub data source",
+              cut(cfg.github_repo,23),selection==0);
+      infoBox(s,f,rows[1],"Database","playtorrio/watchlist-v1.json",
+              "Run Triangle",selection==1);
+      infoBox(s,f,rows[2],"Authentication",cfg.github_token.empty()?
+              "Key not imported":"GitHub key stored in local settings",
+              cfg.github_token.empty()?"Missing":"Imported",selection==2);
+      infoBox(s,f,rows[3],"Read/write verification",
+              "One test checks download and SHA-guarded upload","Run Triangle",selection==3);
+      infoBox(s,f,rows[4],"Offline JSON cache",
+              "Stored at /data/playtorrio/library-cache.json","After test",selection==4);
+      infoBox(s,f,rows[5],"Playback synchronization","Not implemented in this preview",
+              "Unavailable",selection==5);
+    }
   }else if(tab==3){
     heading(s,f,"Addons","Your saved Stremio manifest.json sources");
     infoBox(s,f,rows[0],"Installed manifests",
@@ -361,7 +380,7 @@ int main(){
     if(tab==0)home(*screen,fonts,focus);
     else{
       screen->FrameBufferFill(bg);
-      section(*screen,fonts,tab,settings,imported,focus,parseError);
+      section(*screen,fonts,tab,settings,imported,focus,parseError,diagnostic);
     }
     nav(*screen,fonts,tab);
     diagnosticBand(*screen,fonts,diagnostic,tested,logging);
