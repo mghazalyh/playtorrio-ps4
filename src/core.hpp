@@ -10,6 +10,7 @@ struct Settings {
   std::string github_token;
   std::string github_repo = "mghazalyh/torriodb";
   std::string github_branch = "main";
+  std::string direct_stream_url; // Optional HTTPS video for playback testing.
   std::string diagnostic_type = "movie";
   std::string diagnostic_id;  // Example: tt1234567 or tt1234567:1:1.
   int torbox_torrent_id = -1; // Optional existing TorBox torrent, no modifications.
