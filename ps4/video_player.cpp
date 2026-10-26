@@ -312,6 +312,7 @@ bool Player::render(Scene2D& scene){
   int outW=((int)(w*ratio)/2)*2,outH=((int)(h*ratio)/2)*2;
   if(outW<=0||outH<=0)return false;
   const int left=(1280-outW)/2,top=(720-outH)/2;
+  rgbPixels_.resize((size_t)outW*outH);
   for(int row=0;row<outH;row+=2) {
     const int sy=std::min(h-1,(int)(((float)row/outH)*h));
     const uint8_t* luma=yPlane+(size_t)sy*pitch;
