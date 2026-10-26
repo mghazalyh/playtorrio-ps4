@@ -5,6 +5,7 @@
 #include <orbis/Sysmodule.h>
 #include <orbis/_types/http.h>
 #include <cstdint>
+#include <algorithm>
 #include <string>
 
 namespace ps4net {
