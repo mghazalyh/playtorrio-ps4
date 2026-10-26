@@ -27,6 +27,7 @@
 #include "advanced_discover.hpp"
 #include "../src/advanced_discover.hpp"
 #include "../src/local_library.hpp"
+#include "../src/source_badges.hpp"
 #include "../src/show_details.hpp"
 
 std::stringstream debugLogStream;
@@ -290,7 +291,8 @@ void sourcePage(Scene2D& s,const Fonts& f,const ptvcatalog::Item& item,
     txt(s,f,cut(sourceLabel(c.stream),86),73,y+23,paper,1);
     txt(s,f,c.direct?"DIRECT HTTPS":"TORBOX / ON-DEMAND",74,y+44,
         c.direct?green:gold,0);
-    txt(s,f,c.direct?"READY":"RESOLVE WHEN SELECTED",990,y+36,
+    txt(s,f,ptvsourceui::label(c.stream),906,y+23,gold,0);
+    txt(s,f,c.direct?"DIRECT":"TORBOX",1100,y+43,
         c.direct?green:muted,0);
   }
   if(!fetching&&!error.empty()&&!choices.entries.empty())
