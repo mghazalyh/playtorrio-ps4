@@ -190,6 +190,14 @@ void section(Scene2D& s,const Fonts& f,int tab,const ptv::Settings& cfg,
     infoBox(s,f,rows[4],"English audio and subtitles","Language-first playback preferences","Coming soon",selection==4);
     infoBox(s,f,rows[5],"Next episode","Continuous series playback","Coming soon",selection==5);
   }else if(tab==2){
+    if(!cfg.github_sync_enabled){
+      heading(s,f,"My List","GitHub cloud library synchronization is paused");
+      infoBox(s,f,rows[0],"GitHub sync","Disabled by your local settings.json","OFF",selection==0);
+      infoBox(s,f,rows[1],"Your current library","The PS4 will not contact your GitHub repository","No sync",selection==1);
+      infoBox(s,f,rows[2],"Change later","Set githubSyncEnabled to true when ready","Optional",selection==2);
+      infoBox(s,f,rows[3],"Movies & TV","Discover from TMDB and configured Stremio addons","Available",selection==3);
+      return;
+    }
     heading(s,f,"My List","Live read from your private GitHub watchlist");
     if(diag.library_titles>0){
       infoBox(s,f,rows[0],"Private watchlist",
@@ -229,18 +237,18 @@ void section(Scene2D& s,const Fonts& f,int tab,const ptv::Settings& cfg,
     }
   }else{
     heading(s,f,"Settings","Your account and device preferences");
-    infoBox(s,f,rows[0],"Import settings","X or Square loads JSON from USB0 or USB1",
-            loaded?"Imported":"Not loaded",selection==0);
+    infoBox(s,f,rows[0],"Reload local settings","X or Square reloads /data/playtorrio/settings.json",
+            loaded?"Loaded":"Not loaded",selection==0);
     infoBox(s,f,rows[1],"TorBox API key","Stored locally and never displayed",
             cfg.torbox_api_key.empty()?"Missing":"Imported",selection==1);
-    infoBox(s,f,rows[2],"Private GitHub key","Your torriodb access token remains on PS4",
-            cfg.github_token.empty()?"Missing":"Imported",selection==2);
-    infoBox(s,f,rows[3],"Addon manifests","Configured Stremio URL list",
+    infoBox(s,f,rows[2],"TMDB API key","Imported from your local settings.json",
+            cfg.tmdb_api_key.empty()?"Not set":"Loaded",selection==2);
+    infoBox(s,f,rows[3],"Addon manifests","Configured Stremio manifest.json URL list",
             std::to_string(cfg.addons.size())+" configured",selection==3);
     infoBox(s,f,rows[4],"English subtitles","Automatically prefer English when playback works",
             cfg.subtitles_english?"Preferred":"Disabled",selection==4);
-    infoBox(s,f,rows[5],"English audio","Automatically prefer labeled English tracks",
-            cfg.audio_english?"Preferred":"Disabled",selection==5);
+    infoBox(s,f,rows[5],"GitHub library sync","Optional cloud library sync (currently off by default)",
+            cfg.github_sync_enabled?"Enabled":"Disabled",selection==5);
     if(!error.empty())
       txt(s,f,cut(error,86),72,665,gold,0);
   }
@@ -293,7 +301,20 @@ bool importUsb(ptv::Settings& settings,std::string& message){
     message="USB settings imported successfully";
     return true;
   }
-  message="No settings JSON found on USB0 or USB1";
+  // shadPS4 users edit the mapped Windows data folder directly. Pressing
+  // Square reloads the same /data file, with no USB or app restart needed.
+  auto local=readConfig();
+  if(!local.empty()){
+    ptv::Settings parsed;std::string error;
+    if(ptv::import_settings(local,parsed,error)){
+      settings=parsed;
+      message="Local settings reloaded";
+      return true;
+    }
+    message="Invalid local settings JSON (check syntax)";
+    return false;
+  }
+  message="No local JSON; place settings.json in /data/playtorrio";
   return false;
 }
 void diagnosticBand(Scene2D& s,const Fonts& f,const ps4diag::Summary& report,
@@ -321,7 +342,7 @@ void footer(Scene2D& s,const Fonts& f,int tab,int focus){
   txt(s,f,"L1 / R1   Tabs",387,707,muted,0);
   txt(s,f,"D-Pad   Navigate",594,707,muted,0);
   txt(s,f,"Triangle   Test all",798,707,muted,0);
-  if(tab==4)txt(s,f,"Square USB",1120,707,muted,0);
+  if(tab==4)txt(s,f,"Square Reload",1105,707,muted,0);
 }
 
 }
@@ -332,7 +353,7 @@ int main(){
   ptv::Settings settings;std::string parseError;
   auto source=readConfig();
   bool imported=!source.empty()&&ptv::import_settings(source,settings,parseError);
-  if(source.empty())parseError="Add settings.json using GoldHEN FTP";
+  if(source.empty())parseError="Place settings.json in /data/playtorrio";
   scePadInit();
   OrbisUserServiceInitializeParams params={};
   params.priority=ORBIS_KERNEL_PRIO_FIFO_LOWEST;
