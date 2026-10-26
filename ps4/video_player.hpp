@@ -1,5 +1,6 @@
 #pragma once
 #include <atomic>
+#include <chrono>
 #include <cstdint>
 #include <string>
 #include <thread>
@@ -17,7 +18,7 @@ public:
   // Called on PS4 UI/render thread. Display most recent decoded NV12 frame.
   // The 2x2 block sampling is CPU-based; no quality or FPS guarantee.
   bool render(Scene2D& canvas);
-  Status state()const{return status_;}
+  Status state()const{return status_.load();}
   uint64_t frames()const{return frames_;}
   int lastError()const{return last_error_;}
 private:
@@ -25,7 +26,9 @@ private:
   static void deallocate(void*,void*);
   void audioLoop();
   AvHandle handle_=nullptr;
-  Status status_=Status::Idle;
+  std::atomic<Status> status_{Status::Idle};
+  std::chrono::steady_clock::time_point startTime_{};
+  bool preferredTracks_=false;
   uint64_t frames_=0;
   int last_error_=0;
   std::atomic<bool> audioRunning_{false};
