@@ -59,6 +59,13 @@ bool import_settings(const std::string& json,Settings& output,std::string& error
     if(it!=o.end()&&it->second.is<picojson::array>())
       for(const auto& v:it->second.get<picojson::array>())add(v);
   }
+  s.tmdb_api_key=field(o,"tmdbApiKey");
+  if(s.tmdb_api_key.empty())s.tmdb_api_key=field(o,"tmdb_api_key");
+  if(s.tmdb_api_key.size()>512 || s.tmdb_api_key.find_first_of("\r\n\t ")!=std::string::npos)
+    s.tmdb_api_key.clear();
+  auto githubEnabled=o.find("githubSyncEnabled");
+  if(githubEnabled!=o.end()&&githubEnabled->second.is<bool>())
+    s.github_sync_enabled=githubEnabled->second.get<bool>();
   s.torbox_api_key=field(o,"torboxApiKey");
   if(s.torbox_api_key.empty())s.torbox_api_key=field(o,"torbox_api_key");
   s.github_token=field(o,"githubToken");
