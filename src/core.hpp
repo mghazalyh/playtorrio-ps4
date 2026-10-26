@@ -7,6 +7,8 @@ namespace ptv {
 struct Settings {
   std::vector<std::string> addons;
   std::string torbox_api_key;
+  std::string tmdb_api_key; // TMDB v3 API key; never print it in logs.
+  bool github_sync_enabled = false; // Opt-in only, disabled by default.
   std::string github_token;
   std::string github_repo = "mghazalyh/torriodb";
   std::string github_branch = "main";
