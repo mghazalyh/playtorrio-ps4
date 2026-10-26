@@ -5,7 +5,7 @@
 | Feature | Core test status | PS4 device behavior |
 |---|---|---|
 | GoldHEN 10.01 package | Packaging pipeline added | Device installation not tested |
-| Modern dark PlayTorrio TV UI | TrueType typography, cinematic hero, category rail and controls compile | PS4 screenshot/contrast verification needed |
+| Modern dark PlayTorrio TV UI | TrueType typography, compact 720p hero, 16 focusable home tiles, six settings rows compile | PS4 screenshot/contrast verification needed |
 | DualShock 4 control | Native controller API | Device testing needed |
 | Import settings JSON | Core parser regression-tested | Square/X USB import implemented, hardware test pending |
 | Stremio addon manifest.json | Core normalization and parser regression-tested | HTTPS transport integration pending |
