@@ -307,7 +307,7 @@ bool Player::render(Scene2D& scene){
   const uint8_t* uvPlane=yPlane+(size_t)pitch*h;
   // Letterboxed video at up to 1152x648, using direct framebuffer 2x2
   // blocks. This is deliberately simple until a texture/GPU backend is ready.
-  constexpr int maxW=1152,maxH=648;
+  constexpr int maxW=960,maxH=540;
   float ratio=std::min((float)maxW/w,(float)maxH/h);
   int outW=((int)(w*ratio)/2)*2,outH=((int)(h*ratio)/2)*2;
   if(outW<=0||outH<=0)return false;
