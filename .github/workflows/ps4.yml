@@ -71,13 +71,13 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          release=ps4-ui-preview-0.3.0
+          release=ps4-diagnostics-0.4.0
           if gh release view "$release" >/dev/null 2>&1; then
             gh release upload "$release" dist/*.pkg --clobber
           else
             gh release create "$release" dist/*.pkg --prerelease \
-              --title "PlayTorrio PS4 v0.3 — Compact TV UI preview (not streaming yet)" \
-              --notes "Compact 720p native TV UI with 16 home tiles, shorter banner, 6-row settings pages, controller navigation and USB settings import. Still NOT a working media player; no TorBox streaming or live GitHub sync. Needs testing on a GoldHEN PS4."
+              --title "PlayTorrio PS4 v0.4 — Native integration diagnostic PKG" \
+              --notes "Real native HTTPS integration diagnostics via Triangle: validate addon manifests, optional stream endpoint and CDN range request, TorBox account/torrent/optional existing file, GitHub read + SHA-guarded write. Persistent FTP log: /data/playtorrio/logs/diagnostics.log. Video decoder NOT implemented. This is an experimental test build."
           fi
       - name: Send experimental package to existing Telegram group
         env:
@@ -97,7 +97,7 @@ jobs:
           else
             curl --fail --silent --show-error --retry 2 \
               -F "chat_id=$CHANNEL_ID" -F "document=@$pkg" \
-              -F "caption=PlayTorrio PS4 experimental build. NOT a working video player yet. $RUN_URL" \
+              -F "caption=PlayTorrio PS4 v0.4 diagnostic test build. Triangle runs live HTTPS tests. FTP log /data/playtorrio/logs/diagnostics.log. Video playback NOT implemented yet. $RUN_URL" \
               "https://api.telegram.org/bot$BOT_TOKEN/sendDocument" >/dev/null
           fi
           echo "Telegram package delivered."
