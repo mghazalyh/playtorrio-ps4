@@ -10,13 +10,13 @@
 **Latest implemented feature commit before these handover files:** a887b6c710373c5c374b6eba6d3e9b9e8c594526 (codec-aware source preference, v1.3.3).  
 **Latest published build:** **ps4-native-quality-1.3.5**, https://github.com/mghazalyh/playtorrio-ps4/releases/tag/ps4-native-quality-1.3.5 (ZIP/PKG published, PS4 CI passed). Latest user-tested build **v1.3.4**, picture plays but looks blocky/pixelated and audio is not fully working.  
 **CI run:** https://github.com/mghazalyh/playtorrio-ps4/actions/runs/40383384276 — completed successfully for v1.3.5: portable C++ tests (including NV12 resampling), OpenOrbis cross-compilation, PS4 PKG and emulator ZIP validation.  
-**User's most recent actual emulator playback test:** **v1.3.3**. The first show fetched a 318,800,024-byte media source, then HTTP 429 after 99 additional small Range requests and showed 0 frames. The second show loaded a 2,030,476,793-byte source and **rendered 97 decoded frames** but displayed only brief flashes of a logo; AudioOut initialization was skipped on -2144993266. See new Stage I below.  
+**User's most recent actual emulator playback test:** **v1.3.4**, user-provided diagnostics(5).log. First playable show **219 decoded frames** from a 318,800,024-byte source; second show **1,059 decoded frames** from a 1,584,500,550-byte source. Both display pictures, but user reports game-like poor quality. First show logged **AUDIO SKIP stream format not 48k stereo PCM**. See new Stage J and docs/rendering-research.md.  
 **Current primary blocker:** Decoding and image presentation are confirmed in shadPS4 v1.3.4 but **picture quality is bad**, because the old renderer duplicated pixels in 2x2 blocks at only 960x540 and used SD color coefficients. First v1.3.4 video displayed 219 frames, second 1059; one stream logged AUDIO SKIP stream format not 48k stereo PCM. v1.3.5 improves CPU color/scaling, but **its actual picture quality, frame rate, and audio are NOT yet tested**. Physical PS4 untested.  
 **Top next step:** user-test v1.3.5 picture detail/FPS and inspect VIDEO_QUALITY convert_ms plus VIDEO_PROGRESS and AUDIO logs; next major improvement is a **native PS4 Piglet GPU-texture renderer** with linear filtering and decoupled conversion (see docs/rendering-research.md).
 
 **Verified in emulator:** native HTTP(S) requests, TMDB trending JSON, Stremio manifest, TorBox authenticated APIs, real catalog, Stremio source resolution, and range-compatible media access.  
 **Verified in CI:** C++ regression tests, PS4 package format, extracted emulator game ZIP content.  
-**Not verified:** smooth/continuous video playback, synchronized audible sound, rendered subtitles, 1080p performance, **any tests on a physical PS4**, and an end-user playable final release. **Confirmed in v1.3.3 emulator:** one stream decoded 97 frames while only a brief logo flashed.
+**Not verified:** acceptable HD picture/smooth video, synchronized audible sound, rendered subtitles, full 1080p performance, **any tests on a physical PS4**, and production-quality media playback. Confirmed on v1.3.4 emulator: 219 and 1,059 decoded frames with visible but poor-quality video.
 
 **User directive:** Physical PS4 (GoldHEN, target firmware 10.01) is the product target. shadPS4 is the test/development environment. Share common core functionality, isolate emulator quirks, preserve a real-hardware-compatible video architecture. **Do not turn HostTools or other Windows helpers into a permanent console dependency.**  
 **GitHub watchlist rule:** githubSyncEnabled must remain **false** and GitHub watchlist read/write disabled until the user requests otherwise.
@@ -38,10 +38,10 @@ The documentation-creation commit necessarily changes HEAD after a887b6c; treat 
 
 ### Current downloadable artifacts
 
-- Emulator-extracted ZIP: https://github.com/mghazalyh/playtorrio-ps4/releases/download/ps4-native-playback-1.3.4/PlayTorrio-PS4-shadPS4-extracted.zip (verified released, 645,075 bytes as checked on 2026-10-27).
-- Experimental PKG: https://github.com/mghazalyh/playtorrio-ps4/releases/download/ps4-native-playback-1.3.4/PlayTorrio-PS4-GoldHEN-10.01-EXPERIMENTAL.pkg (verified released, 6,619,136 bytes).
+- Emulator-extracted ZIP: https://github.com/mghazalyh/playtorrio-ps4/releases/download/ps4-native-quality-1.3.5/PlayTorrio-PS4-shadPS4-extracted.zip (verified released, 647,447 bytes as checked on 2026-10-27).
+- Experimental PKG: https://github.com/mghazalyh/playtorrio-ps4/releases/download/ps4-native-quality-1.3.5/PlayTorrio-PS4-GoldHEN-10.01-EXPERIMENTAL.pkg (verified released, 6,619,136 bytes).
 - The ZIP contains the install-ready **BREW20346/** folder; Windows **HostTools/** are included but optional. The PKG is NOT proof of a working hardware video player.
-- Build's user-facing package metadata: TITLE_ID **BREW20346**, CONTENT_ID **IV0000-BREW20346_00-PLAYTORRIOPS4APP**, APP_VER and VERSION **01.34**.
+- Build's user-facing package metadata: TITLE_ID **BREW20346**, CONTENT_ID **IV0000-BREW20346_00-PLAYTORRIOPS4APP**, APP_VER and VERSION **01.35**.
 
 ## 1. Why this repository exists / ownership and intent
 
