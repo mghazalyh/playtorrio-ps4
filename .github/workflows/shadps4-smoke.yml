@@ -17,7 +17,7 @@ jobs:
         run: |
           # Ubuntu hosted runners have fresh apt indexes. Avoid long updates
           # that can hang on unreliable package mirrors.
-          sudo timeout 130s apt-get install -y -qq unzip xvfb xauth mesa-vulkan-drivers vulkan-tools libvulkan1 imagemagick
+          sudo timeout 130s apt-get install -y -qq unzip xvfb xauth mesa-vulkan-drivers vulkan-tools libvulkan1
       - name: Run actual emulator boot attempt
         id: boot
         continue-on-error: true
@@ -103,8 +103,12 @@ jobs:
               LIBGL_ALWAYS_SOFTWARE=1 \
             xvfb-run -a -s '-screen 0 1280x720x24' \
             bash -c '
-              (sleep 19; timeout 10s import -window root logs/emulator-screen.png \
-                 2>logs/screenshot-errors.txt || true) &
+              (sleep 19; if command -v import >/dev/null 2>&1; then
+                timeout 10s import -window root logs/emulator-screen.png \
+                  2>logs/screenshot-errors.txt || true
+              else
+                echo "Screenshot utility unavailable on this runner" > logs/screenshot-errors.txt
+              fi) &
               timeout --signal=INT --kill-after=9s 55s "$1" "$2" \
                 > logs/console.txt 2>&1
               result="$?"
