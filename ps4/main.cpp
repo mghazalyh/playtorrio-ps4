@@ -974,6 +974,24 @@ int main(){
       // background catalog refresh or diagnostic trigger steals a button.
       if(!viewing&&panel==1){
         if(pressed&ORBIS_PAD_BUTTON_CIRCLE){panel=0;detailMessage.clear();}
+        else if(pressed&ORBIS_PAD_BUTTON_SQUARE){
+          const bool added=ptvlocal::toggle(localSaved,selectedItem);
+          detailMessage=writeLocalTitles(localSaved)?
+            (added?"Saved locally to My List":"Removed from local My List"):
+            "Failed to write local My List";
+          ps4diag::note("LIBRARY",added?"Saved local title":"Removed local title");
+        }
+        else if(pressed&ORBIS_PAD_BUTTON_R1){relatedMode=true;relatedFocus=0;}
+        else if(pressed&ORBIS_PAD_BUTTON_L1){relatedMode=false;}
+        else if(relatedMode){
+          const int count=(int)related.size();
+          if(count){
+            if(pressed&ORBIS_PAD_BUTTON_LEFT)relatedFocus=(relatedFocus+count-1)%count;
+            if(pressed&ORBIS_PAD_BUTTON_RIGHT)relatedFocus=(relatedFocus+1)%count;
+            if(pressed&ORBIS_PAD_BUTTON_CROSS&&!detailBusy.load())
+              openDetails(related[relatedFocus]);
+          }
+        }
         else if(selectedItem.series){
           if(pressed&ORBIS_PAD_BUTTON_L2 && !seasons.empty())
             chooseSeason((seasonFocus+(int)seasons.size()-1)%seasons.size());
@@ -1001,6 +1019,70 @@ int main(){
           if(pressed&ORBIS_PAD_BUTTON_L2)sourceFocus=std::max(0,(sourceFocus/7-1)*7);
           if(pressed&ORBIS_PAD_BUTTON_CROSS&&!sourcesBusy.load())playSelected();
         }
+        pressed=0;
+      }
+      else if(!viewing&&panel==3){
+        if(pressed&ORBIS_PAD_BUTTON_CIRCLE){panel=0;}
+        else if(pressed&ORBIS_PAD_BUTTON_UP)filterFocus=(filterFocus+8)%9;
+        else if(pressed&ORBIS_PAD_BUTTON_DOWN)filterFocus=(filterFocus+1)%9;
+        else {
+          int direction=(pressed&ORBIS_PAD_BUTTON_LEFT)?-1:
+                        (pressed&ORBIS_PAD_BUTTON_RIGHT)?1:0;
+          if(pressed&ORBIS_PAD_BUTTON_CROSS){
+            if(filterFocus==1){keyboardFocus=0;panel=4;}
+            else if(filterFocus==7){
+              requestAdvanced(1);
+              if(browseBusy.load()){panel=0;tab=1;catalogPage=0;focus=0;}
+            }else if(filterFocus==8){
+              filters=ptvdiscover::Filters();
+              filters.series=catalogTv;
+              browseActive=false;catalogPage=0;focus=0;
+              browseMessage="Filters cleared; showing trending titles";
+              panel=0;
+            }else direction=1;
+          }
+          if((pressed&ORBIS_PAD_BUTTON_SQUARE)&&filterFocus==1)
+            filters.title.clear();
+          if((pressed&ORBIS_PAD_BUTTON_SQUARE)&&filterFocus==2)
+            filters.from_year=0;
+          if((pressed&ORBIS_PAD_BUTTON_SQUARE)&&filterFocus==3)
+            filters.to_year=0;
+          if(direction){
+            switch(filterFocus){
+              case 0:filters.series=!filters.series;break;
+              case 2:
+              case 3:{
+                int& y=filterFocus==2?filters.from_year:filters.to_year;
+                y=y==0?2026:std::max(1900,std::min(2100,y+direction));break;
+              }
+              case 4:filters.country=cycle(filters.country,direction,COUNTRY_CODES);break;
+              case 5:filters.language=cycle(filters.language,direction,LANG_CODES);break;
+              case 6:filters.sort=cycle(filters.sort,direction,SORT_CODES);break;
+              default:break;
+            }
+          }
+        }
+        pressed=0;
+      }else if(!viewing&&panel==4){
+        const std::string keys="ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 -";
+        if(pressed&ORBIS_PAD_BUTTON_CIRCLE || pressed&ORBIS_PAD_BUTTON_TRIANGLE)
+          panel=3;
+        else if(pressed&ORBIS_PAD_BUTTON_SQUARE){
+          if(!filters.title.empty())filters.title.pop_back();
+        }else if(pressed&ORBIS_PAD_BUTTON_LEFT)
+          keyboardFocus=(keyboardFocus+(int)keys.size()-1)%keys.size();
+        else if(pressed&ORBIS_PAD_BUTTON_RIGHT)
+          keyboardFocus=(keyboardFocus+1)%keys.size();
+        else if(pressed&ORBIS_PAD_BUTTON_DOWN)
+          keyboardFocus=(keyboardFocus+10)%keys.size();
+        else if(pressed&ORBIS_PAD_BUTTON_UP)
+          keyboardFocus=(keyboardFocus+keys.size()-10)%keys.size();
+        else if(pressed&ORBIS_PAD_BUTTON_CROSS && filters.title.size()<64)
+          filters.title+=keys[keyboardFocus];
+        pressed=0;
+      }
+      if(!viewing&&panel==0&&tab==1&&(pressed&ORBIS_PAD_BUTTON_SQUARE)){
+        filters.series=catalogTv;filterFocus=0;panel=3;
         pressed=0;
       }
       if((pressed&ORBIS_PAD_BUTTON_SQUARE) && tab!=4){
