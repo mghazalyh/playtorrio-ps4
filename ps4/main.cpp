@@ -410,6 +410,7 @@ int main(){
     }).detach();
   };
   uint32_t previous=0;
+  ps4diag::note("BOOT","PASS entered main PS4 render loop");
   while(true){
     OrbisPadData data={};
     if(pad>=0&&scePadReadState(pad,&data)>=0){
@@ -551,11 +552,11 @@ int main(){
       }
       (void)frameDrawn;
     }else{
+      // Always paint the complete background, including a fresh initial
+      // frame. Never reuse uninitialized video-out memory between flips.
+      screen->FrameBufferFill(bg);
       if(tab==0)home(*screen,fonts,focus,snapshot);
-      else{
-        screen->FrameBufferFill(bg);
-        section(*screen,fonts,tab,settings,imported,focus,parseError,snapshot);
-      }
+      else section(*screen,fonts,tab,settings,imported,focus,parseError,snapshot);
       nav(*screen,fonts,tab);
       diagnosticBand(*screen,fonts,snapshot,completed,logging,running.load());
       footer(*screen,fonts,tab,focus);
@@ -566,10 +567,14 @@ int main(){
         txt(*screen,fonts,cut(parseError,78),65,641,gold,0);
       }
     }
+    if(frame==0)ps4diag::note("RENDER","Drawing first screen completed; submitting video flip");
     screen->SubmitFlip(frame);
+    if(frame==0)ps4diag::note("RENDER","First flip submitted; waiting for video output");
     screen->FrameWait(frame);
+    if(frame==0)ps4diag::note("RENDER","First frame wait completed; swapping buffers");
     screen->FrameBufferSwap();
     ++frame;
+    if(frame==30)ps4diag::note("RENDER","PASS first 30 frames of UI presented");
     sceKernelUsleep(42000);
   }
 }
