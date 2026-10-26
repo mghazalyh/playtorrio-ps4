@@ -18,6 +18,7 @@
 #include "graphics.h"
 #include "../src/core.hpp"
 #include "../src/config_loader.hpp"
+#include "../src/catalog.hpp"
 #include "diagnostics.hpp"
 #include "video_player.hpp"
 #include "source_resolver.hpp"
@@ -151,20 +152,60 @@ void miniCard(Scene2D& s,const Fonts& f,int x,int y,int index,
   txt(s,f,headings[index],x+27,y+33,paper,1);
   txt(s,f,hint,x+27,y+59,muted,0);
 }
+void catalogTile(Scene2D& s,const Fonts& f,int x,int y,
+                 const ptvcatalog::Item& item,bool selected,bool small=false){
+  const int w=182,h=small?76:153;
+  C tint=item.series?C{39,49,91}:C{64,42,70};
+  round(s,x-2,y-2,w+4,h+4,10,selected?purple:line);
+  round(s,x,y,w,h,9,tint);
+  round(s,x+13,y+12,53,23,10,{25,28,42});
+  txt(s,f,item.series?"SERIES":"MOVIE",x+20,y+28,{206,197,241},0);
+  if(!small){
+    // Data-backed cards: title, release year and rating are real TMDB fields.
+    // Poster decoder/texture rendering remains a separate backend.
+    rect(s,x+14,y+75,w-28,1,{94,84,123});
+    txt(s,f,cut(item.title,16),x+13,y+105,paper,2);
+    const std::string metadata=item.year+
+      "  TMDB "+std::to_string((int)(item.rating*10)/10)+"."+
+      std::to_string((int)(item.rating*10)%10);
+    txt(s,f,cut(metadata,23),x+14,y+134,muted,0);
+  }else{
+    txt(s,f,cut(item.title,20),x+13,y+56,paper,1);
+  }
+  if(selected)rect(s,x+13,y+h-4,w-26,2,{242,220,255});
+}
 void home(Scene2D& s,const Fonts& f,int cardFocus,
-          const ps4diag::Summary& diag){
+          const ps4diag::Summary& diag,const ptvcatalog::Catalog& catalog){
+  if(!catalog.loaded){
+    stripe(s);
+    round(s,51,103,139,23,11,{67,49,91});
+    txt(s,f,"PLAYTORRIO FOR TV",62,120,{219,206,255},0);
+    txt(s,f,"Your next watch.",49,194,paper,5);
+    txt(s,f,"Load your real TV and movie catalog via HostTools on Windows.",52,232,muted,1);
+    txt(s,f,"HOME       DISCOVER       MY LIST       ADDONS",53,267,{197,177,232},0);
+    txt(s,f,"Browse",52,342,paper,3);
+    for(int j=0;j<6;j++)featureCard(s,f,53+j*198,368,j,j==cardFocus);
+    txt(s,f,"Quick access",52,558,paper,3);
+    for(int j=0;j<6;j++)miniCard(s,f,53+j*198,570,j,j+6==cardFocus,diag);
+    return;
+  }
   stripe(s);
-  round(s,51,103,139,23,11,{67,49,91});
-  txt(s,f,"PLAYTORRIO FOR TV",62,120,{219,206,255},0);
-  txt(s,f,"Your next watch.",49,194,paper,5);
-  txt(s,f,"All your sources and your personal library. One screen.",52,233,muted,2);
-  txt(s,f,"STREMIO    TORBOX    MY LIST",53,267,{197,177,232},0);
-  txt(s,f,"Browse",52,342,paper,3);
-  txt(s,f,"Collections and account services",925,339,muted,0);
-  for(int i=0;i<6;i++)featureCard(s,f,53+i*198,368,i,i==cardFocus);
-  txt(s,f,"Quick access",52,558,paper,3);
-  txt(s,f,"Configured for your console",965,556,muted,0);
-  for(int i=0;i<6;i++)miniCard(s,f,53+i*198,570,i,i+6==cardFocus,diag);
+  const auto& featured=!catalog.tv.empty()?catalog.tv.front():catalog.movies.front();
+  round(s,52,99,119,25,12,{65,44,96});
+  txt(s,f,"TRENDING NOW",67,116,{220,204,255},0);
+  txt(s,f,cut(featured.title,29),52,185,paper,5);
+  txt(s,f,cut(featured.overview,77),53,232,muted,1);
+  txt(s,f,cut(featured.overview.size()>77?
+          featured.overview.substr(77):std::string{},83),53,255,muted,1);
+  txt(s,f,"TV SERIES  |  LIVE TMDB CATALOG",53,284,{209,188,248},0);
+  txt(s,f,"Trending TV shows",52,337,paper,3);
+  txt(s,f,std::to_string(catalog.tv.size())+" shows loaded",1014,337,green,1);
+  for(int n=0;n<6 && n<(int)catalog.tv.size();n++)
+    catalogTile(s,f,53+n*198,365,catalog.tv[n],cardFocus==n);
+  txt(s,f,"Popular movies",52,557,paper,3);
+  txt(s,f,std::to_string(catalog.movies.size())+" movies loaded",1000,557,green,1);
+  for(int n=0;n<6 && n<(int)catalog.movies.size();n++)
+    catalogTile(s,f,53+n*198,574,catalog.movies[n],cardFocus==n+6,true);
 }
 void infoBox(Scene2D& s,const Fonts& f,int y,const std::string& name,
              const std::string& description,const std::string& info,
@@ -179,17 +220,41 @@ void infoBox(Scene2D& s,const Fonts& f,int y,const std::string& name,
 }
 void section(Scene2D& s,const Fonts& f,int tab,const ptv::Settings& cfg,
              bool loaded,int selection,const std::string& error,
-             const ps4diag::Summary& diag){
+             const ps4diag::Summary& diag,const ptvcatalog::Catalog& catalog,
+             bool tvMode,int page){
   // Six complete, compact rows on a 720p television (was three).
   const int rows[]={173,255,337,419,501,583};
   if(tab==1){
-    heading(s,f,"Discover","Catalog and playback integration status");
-    infoBox(s,f,rows[0],"Movies","TMDB movie collections","Coming soon",selection==0);
-    infoBox(s,f,rows[1],"Series","Season and episode browsing","Coming soon",selection==1);
-    infoBox(s,f,rows[2],"Sources","Stremio stream parsing","Parser ready",selection==2);
-    infoBox(s,f,rows[3],"Search","Search across films and shows","Coming soon",selection==3);
-    infoBox(s,f,rows[4],"English audio and subtitles","Language-first playback preferences","Coming soon",selection==4);
-    infoBox(s,f,rows[5],"Next episode","Continuous series playback","Coming soon",selection==5);
+    if(catalog.loaded){
+      const auto& items=tvMode?catalog.tv:catalog.movies;
+      heading(s,f,tvMode?"Discover / TV Shows":"Discover / Movies",
+              "Real TMDB titles | D-Pad left/right: category | L2/R2: page");
+      for(int n=0;n<6;n++){
+        const int index=page*6+n;
+        if(index>=(int)items.size())break;
+        const auto& item=items[index];
+        infoBox(s,f,rows[n],cut(item.title,54),
+               cut(item.overview.empty()?"No overview from TMDB":item.overview,90),
+               item.year+"   "+std::to_string((int)item.rating)+"/10",
+               n==selection);
+      }
+      txt(s,f,"PAGE "+std::to_string(page+1)+" / "+
+          std::to_string(std::max(1,((int)items.size()+5)/6)),
+          1028,155,green,1);
+    }else{
+      heading(s,f,"Discover","Awaiting real TMDB TV and movie catalogs");
+      infoBox(s,f,rows[0],"No catalog downloaded",
+              "Run HostTools/Load-Shows.cmd from the emulator ZIP","Not loaded",true);
+      infoBox(s,f,rows[1],"Windows shared path",
+              "shadPS4/data/playtorrio/catalog.json","Auto-detected");
+      infoBox(s,f,rows[2],"TMDB API key",
+              cfg.tmdb_api_key.empty()?"Missing in settings.json":"Loaded in settings.json",
+              cfg.tmdb_api_key.empty()?"Missing":"Ready");
+      infoBox(s,f,rows[3],"Native shadPS4 networking",
+              "The emulator returned transport=-3 for HTTP requests","Unavailable");
+      if(!catalog.error.empty())
+        txt(s,f,cut(catalog.error,94),73,538,gold,1);
+    }
   }else if(tab==2){
     if(!cfg.github_sync_enabled){
       heading(s,f,"My List","GitHub cloud library synchronization is paused");
@@ -605,8 +670,8 @@ int main(){
       // Always paint the complete background, including a fresh initial
       // frame. Never reuse uninitialized video-out memory between flips.
       screen->FrameBufferFill(bg);
-      if(tab==0)home(*screen,fonts,focus,snapshot);
-      else section(*screen,fonts,tab,settings,imported,focus,parseError,snapshot);
+      if(tab==0)home(*screen,fonts,focus,snapshot,catalog);
+      else section(*screen,fonts,tab,settings,imported,focus,parseError,snapshot,catalog,catalogTv,catalogPage);
       nav(*screen,fonts,tab);
       diagnosticBand(*screen,fonts,snapshot,completed,logging,running.load());
       footer(*screen,fonts,tab,focus);
