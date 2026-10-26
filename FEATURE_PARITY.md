@@ -25,3 +25,10 @@ Only mark an entry complete after tests plus real PS4 verification.
 The v0.4 GoldHEN build writes `/data/playtorrio/logs/diagnostics.log`. Press Triangle from any tab to run the real HTTP integration checks and retrieve the file over FTP. No one has verified these API operations on a physical PS4 yet. Do not call tests passing in CI equivalent to console streaming success.
 
 Native PlayTorrio PS4 v0.5 includes a read-only list of titles fetched from private GitHub storage after Triangle. Video playback and subtitle selection are still not implemented.
+
+## v0.6 hardware playback alpha
+
+- Built and linked real `libSceAvPlayer` video decoding, native NV12 frame presentation, and PS4 audio-output calls. PS4 console playback and audio need actual hardware verification.
+- Source resolution now attempts direct HTTPS video, existing TorBox torrent file links, configured Stremio addon direct streams, and Torrentio infoHash → TorBox create/lookup → CDN links.
+- Controller can request playback from Discover/Addons and a fetched My List title, then pause/resume/exit a session.
+- No fabricated playback claims: audio language switching, subtitles, next episode, GPU rendering performance, source UI, and full parity remain open.
