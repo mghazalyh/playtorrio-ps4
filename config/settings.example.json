@@ -1,0 +1,11 @@
+{
+  "addons": [
+    {"manifestUrl": "https://YOUR-ADDON-HOST/OPTIONAL-CONFIG/manifest.json"}
+  ],
+  "torboxApiKey": "PASTE_ONLY_ON_YOUR_PS4",
+  "githubRepo": "mghazalyh/torriodb",
+  "githubBranch": "main",
+  "githubToken": "PASTE_ONLY_ON_YOUR_PS4",
+  "englishSubtitles": true,
+  "englishAudio": true
+}
