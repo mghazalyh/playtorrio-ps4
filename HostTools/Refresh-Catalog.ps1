@@ -96,7 +96,9 @@ function Update-Catalog {
     [System.IO.File]::WriteAllText($temp,$json,[System.Text.UTF8Encoding]::new($false))
     # Replace in one filesystem operation; never delete the working catalog first.
     if(Test-Path -LiteralPath $JsonPath){
-      [System.IO.File]::Replace($temp,$JsonPath,$null)
+      $backup="$JsonPath.bak"
+      [System.IO.File]::Replace($temp,$JsonPath,$backup)
+      if(Test-Path -LiteralPath $backup){Remove-Item -LiteralPath $backup -Force}
     }else{
       [System.IO.File]::Move($temp,$JsonPath)
     }
