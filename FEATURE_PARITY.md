@@ -1,34 +1,26 @@
-# Feature parity with ptv3
+# Feature parity: active Windows/iOS \`ptv3\` versus native PS4
 
-`ptv3` is the behavioral reference; this project keeps independent native PS4 source.
+**Canonical source audit:** [docs/ptv3-active-feature-audit.md](docs/ptv3-active-feature-audit.md). \`ptv3\` application development occurs on branch \`parity-floating-player-both\`, **not** default \`main\`. Latest independently verified Windows/iOS release at audit: **v1.1.7 Build 127**. Newer v1.1.8 cast-filmography work was in progress, not released. Recheck for new commits before any next comparison.
 
-| Feature | Core test status | PS4 device behavior |
+| Feature | Native PlayTorrio PS4 status | What remains |
 |---|---|---|
-| GoldHEN 10.01 package | Packaging pipeline added | Device installation not tested |
-| Modern dark PlayTorrio TV UI | TrueType typography, compact 720p hero, 16 focusable home tiles, six settings rows compile | PS4 screenshot/contrast verification needed |
-| DualShock 4 control | Native controller API | Device testing needed |
-| Import settings JSON | Core parser regression-tested | Square/X USB import implemented, hardware test pending |
-| Stremio addon manifest.json | Core tests pass | Native HTTPS diagnostic test implemented; console verification pending |
-| Torrentio source enumeration | Core parsing passes | Native live stream lookup by configured diagnosticId implemented; full source UI pending |
-| TorBox direct HTTP streams | Response parsing passes | Native account/list/file/CDN diagnostic implemented; playback adapter missing |
-| TorBox magnet/hash debrid | NOT implemented | Needs create / enumerate / requestdl pipeline |
-| Private GitHub library | JSON v1, tombstones, SHA body regression-tested | Authenticated GET and identical SHA-guarded PUT diagnostic implemented; continuous sync pending |
-| English audio/subtitles | Requirement documented | Player engine not integrated |
-| Next episode | Requirement documented | Player engine not integrated |
-| Import from existing Flutter app | Partial JSON compatibility | Actual exported-format testing pending |
-| Send PKG to existing Telegram group | Action workflow conditional on secret | Requires secret in PS4 repo |
+| TMDB trending/popular catalog | CI/build + prior shadPS4 API tested | Real console verify |
+| TMDB JPEG/PNG poster cache | Implemented v1.4 | User runtime graphics test |
+| Selected TV seasons and episodes | Implemented v1.4 | User controller/metadata test |
+| Stremio addon source picker | Implemented v1.4 | Actual selected-stream runtime check |
+| v1.1.7 Advanced Discover combined title/filters | **Implemented v1.5**, tests pass | UI/live result pagination acceptance |
+| Search query filtering: year, country, language, sort | **Implemented v1.5**, tests pass | Rate limiting, on-screen correctness |
+| Local save/remove My List | **Implemented v1.5**, tests pass | Local file read/write in emulator/console |
+| TMDB recommended and similar movie/TV | **Implemented v1.5** | Correct visible related row and navigation |
+| Source quality/codec/HDR hints | **Implemented v1.5**, tests pass | Hints are not codec verification |
+| Native video AvPlayer and HTTPS range cache | Previous runtime decoded frames | Smooth/full quality, audio formats, console |
+| Actual watch-progress resume and continue watching | **Not implemented** | AvPlayer timestamps/seek, persistence, player UI |
+| BestSimilar/TVDB recommendation enrichment | **Not implemented** | Provider APIs/credentials, metadata verification |
+| Actor credits and filmography (ptv3 v1.1.8) | **Not implemented** | Actual person search, disambiguation, credits |
+| Audio language/downmix/subtitle rendering | **Not complete** | Native audio pipeline + subtitles |
+| GPU Piglet video/artwork compositor | **Not implemented** | Real PS4 GPU pipeline and performance checks |
+| Trakt / Simkl / music / IPTV / anime / books | **Not implemented** | Independent UI/providers/platform engines |
+| GitHub watchlist and Torriodb key vault | **OFF intentionally** | User must explicitly authorize any sync |
+| Real GoldHEN PS4 firmware 10.01 test | **Not tested** | Actual install, controller, video/sound |
 
-Only mark an entry complete after tests plus real PS4 verification.
-
-### Integration log and user verification
-
-The v0.4 GoldHEN build writes `/data/playtorrio/logs/diagnostics.log`. Press Triangle from any tab to run the real HTTP integration checks and retrieve the file over FTP. No one has verified these API operations on a physical PS4 yet. Do not call tests passing in CI equivalent to console streaming success.
-
-Native PlayTorrio PS4 v0.5 includes a read-only list of titles fetched from private GitHub storage after Triangle. Video playback and subtitle selection are still not implemented.
-
-## v0.6 hardware playback alpha
-
-- Built and linked real `libSceAvPlayer` video decoding, native NV12 frame presentation, and PS4 audio-output calls. PS4 console playback and audio need actual hardware verification.
-- Source resolution now attempts direct HTTPS video, existing TorBox torrent file links, configured Stremio addon direct streams, and Torrentio infoHash → TorBox create/lookup → CDN links.
-- Controller can request playback from Discover/Addons and a fetched My List title, then pause/resume/exit a session.
-- No fabricated playback claims: audio language switching, subtitles, next episode, GPU rendering performance, source UI, and full parity remain open.
+**Latest PS4 package:** \`ps4-advanced-discover-1.5.0\`. Successful native CI builds are NOT proof of full UI/playback; see handover. Previous v0.4–v1.3 histories retained in \`handover.md\`.

@@ -1,3 +1,33 @@
+# PlayTorrio PS4 v1.5.0 — Windows/iOS feature-parity milestone
+
+**Actual source checked:** Windows/iOS app [mghazalyh/ptv3](https://github.com/mghazalyh/ptv3) active branch **\`parity-floating-player-both\`**, verified release **v1.1.7 Build 127**. The default \`main\` source is stale; do not compare PS4 against that branch. The newer **v1.1.8 actor-filmography/metadata work was still unreleased** at audit time and has not been ported. See [source-grounded feature matrix](docs/ptv3-active-feature-audit.md).
+
+### New PS4 features
+
+- **Advanced Discover** from Windows/iOS v1.1.7: real TMDB movie/series browsing, optional **title text** (D-pad TV keyboard), 1900–2100 year range, country of origin, original language, most popular/top rated/most reviewed, and remote TMDB result page navigation. Blank title uses TMDB \`/discover\`; nonempty title uses \`/search\` with the other filters applied locally. Filters are only submitted on **Apply**, not every keypress, and saved **locally** to \`/data/playtorrio/discover-filters.json\`. Search-result counts describe the actual displayed matches; a page can be empty even when later pages contain results.
+- **Related titles**: actual TMDB recommendations and, if needed, similar movie/TV items for the selected detail screen; accessible with R1. Related titles open their own detail page via X. This does NOT claim BestSimilar/TVDB scores, which are not yet ported.
+- **Local-only My List**: save or remove a highlighted title with Square from the details view. Browse saved titles in My List; X opens details and Square removes a highlighted entry. Stored as public TMDB title metadata at \`/data/playtorrio/local-library.json\`; no cloud tokens, stream links, playback times or GitHub uploads. This is NOT equivalent to actual Continue Watching resume.
+- **Source metadata badges**: each source row labels possible quality (4K / 1080p / 720p), codec (H264 / HEVC / AV1 / unknown), HDR and DIRECT/TORBOX based on the addon's own descriptive text. **These are hints, not verified codecs**; source manual choice still works as introduced in v1.4.0.
+- v1.4.0 foundations remain: background TMDB artwork, native TV detail/season/episode selection and individual source choices, PS4 AvPlayer decoder and OpenOrbis packaging.
+
+### PS4 controls
+
+| Screen | Controller |
+|---|---|
+| Discover | **Square** opens Advanced Discover; Left/Right switch Movie vs Series when showing normal posters; **L2/R2** pages through results (including remote TMDB pages after local page ends); **X** opens details |
+| Advanced filters | **Up/Down** choose field, **Left/Right** change type/year/country/language/sort, **X** edit title/apply/clear, **Square** clears selected year/title, Circle back |
+| Title keyboard | **D-pad** navigate 38 characters, **X** type, **Square** erase, **Triangle** done, Circle back |
+| Details | **Square** local save/unsave; **R1** Recommended & Similar; **L1** returns to Episodes / Play; **X** chooses episode/movie source or opens highlighted related title; Circle back |
+| Seasons / episodes | **L2/R2** seasons, **Up/Down** episodes, **X** sources |
+| Sources | Up/Down choose, L2/R2 pages, X play explicitly selected source, Circle back |
+| My List (GitHub disabled) | Up/Down navigate, L2/R2 pages, X title details, Square removes local saved item |
+
+**CI verification:** Portable C++ tests include the real v1.1.7 filter URL/search/year/country semantics, local list serialization and source badges; OpenOrbis/PS4 PKG/ZIP checks passed in [Actions run 40394164687](https://github.com/mghazalyh/playtorrio-ps4/actions/runs/40394164687). [v1.5.0 release](https://github.com/mghazalyh/playtorrio-ps4/releases/tag/ps4-advanced-discover-1.5.0) has a native PS4 PKG and shadPS4 extracted ZIP. **This is NOT real-hardware or new-feature emulator runtime verification.** GPU video, audio resampling/subtitles, full Windows/iOS parity and physical PS4 remain open.
+
+**Privacy and scope:** GitHub watchlist sync remains DISABLED even if Windows/iOS supports it. In-progress Windows/iOS v1.1.8 encrypted Torriodb vault is documentation/proposal only; no key syncing or credential uploads occur in PS4. The PS4 remains entirely native OpenOrbis C++.
+
+---
+
 # PlayTorrio PS4 v1.4.0 — Poster discovery, TV episodes and stream selection
 
 **Native PS4 frontend:** This release adds real asynchronously fetched TMDB poster artwork, a 720p TV-focused discovery experience, movie/series details, native TMDB season and episode listings, and an explicit user-selectable Stremio source picker. Existing AvPlayer networking and rendering remain PS4-native.

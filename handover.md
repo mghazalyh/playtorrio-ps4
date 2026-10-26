@@ -6,16 +6,17 @@
 
 **Snapshot date:** 2026-10-27 Singapore time (UTC+08).  
 **GitHub repository:** https://github.com/mghazalyh/playtorrio-ps4, default branch main.  
-**Latest feature release:** **ps4-cinematic-ui-1.4.0**: https://github.com/mghazalyh/playtorrio-ps4/releases/tag/ps4-cinematic-ui-1.4.0  
-**Last feature CI:** https://github.com/mghazalyh/playtorrio-ps4/actions/runs/40387494112 — portable C++ tests and PS4 Clang/LLD cross-compilation, PKG/ZIP validation all succeeded.  
-**New features implemented (not yet user-tested):** async TMDB poster JPEG/PNG cache, poster-driven Home and Discover screens, selected movie/show details, native TV seasons/episodes from TMDB, specific `ttIMDb:season:episode` IDs, explicit Stremio source selection before AvPlayer/optional TorBox. Research tracked in `docs/ui-integration.md`.  
-**Latest actual user runtime test:** v1.3.4 decoded **219** and **1,059** frames on two videos; picture appeared game-like/blocky; first source logged **AUDIO SKIP stream format not 48k stereo PCM**. v1.3.5 bilinear CPU renderer was CI-built but user's actual visual result is not known. v1.4.0 new UI/poster/source flow is likewise **NOT YET EMULATOR TESTED** and physical PS4 not tested.  
-**Top next task:** test v1.4.0 in shadPS4: confirm actual poster images, details navigation, seasons and episodes, source rows, selected-source playback. Validate against sanitized DETAIL/SOURCES/VIDEO_IO logs; fix actual regressions, not assumptions.  
-**Hardware-first:** physical PS4 GoldHEN FW 10.01 remains target; shadPS4 is an emulator/test tool. Keep core/backend native, isolate emulator workarounds, no required Windows HostTools.  
-**Strict GitHub sync rule:** `githubSyncEnabled=false`; no private cloud library read/write unless explicitly requested.
+**Current published PS4 feature release:** **ps4-advanced-discover-1.5.0** — https://github.com/mghazalyh/playtorrio-ps4/releases/tag/ps4-advanced-discover-1.5.0 (ZIP + experimental PKG).  
+**Last verified PS4 feature CI:** https://github.com/mghazalyh/playtorrio-ps4/actions/runs/40394164687 — C++ core and new filter/source/local-list regressions, OpenOrbis cross-compile and package/ZIP validation all passed. Docs-only main pushes can cause the same release tag to be clobbered; inspect HEAD and Actions if needed.
+**SOURCE BREAKTHROUGH:** The Windows/iOS `mghazalyh/ptv3` default `main` is NOT its current application source. Active branch: **`parity-floating-player-both`**; verified latest released **v1.1.7 Build 127** (source `16a4143fd085973b9f103e1faa05b4ec95ad3269`, paired CI `40388302974`). While auditing, the active branch advanced to **v1.1.8 in-progress** `704ac440d3c0bd170cb2dbb28aff0f14ed1a9033` with actor credits and richer similar metadata. Newer branch code is NOT proof of a verified v1.1.8 release. See **docs/ptv3-active-feature-audit.md** for detailed real code/tests and feature matrix.
+**Latest v1.5 PS4 implemented code (not emulator-tested):** Advanced Discover title text + years + original country/language + sort + multi-page TMDB search/discover, controller keyboard, local preferences; TMDB recommended/similar source-backed title shelf, offline-only saved My List, codec/resolution/HDR labels on selected stream sources. v1.4 artwork/TV episode/manual source screens preserved. GitHub sync disabled.
+**Latest actually user-tested PS4 runtime:** v1.3.4 showed 219 and 1,059 decoded frames; video picture was too blocky and an audio format was unsupported. v1.3.5 bilinear video and v1.4/v1.5 UI screens **have not** been independently tested on shadPS4 or physical PS4.
+**Top next step:** user-test the released v1.5 ZIP: select posters, seasons/episodes and a source; Discover Square opens filters (use virtual keyboard for title), apply/page, detail R1 related, Square local save, My List local persistence. Review sanitized DISCOVER/DETAIL/SOURCES/LIBRARY/VIDEO_IO log tags and UI screenshots; fix only observed issues.
+**Real product target:** GoldHEN 10.01 PS4 hardware. shadPS4 is the emulator and HostTools optional. **Do not enable GitHub watchlist or key-vault sync.**
 
-**Verified:** native PS4 HTTP(S), TMDB catalog, installed addon source lookup, TorBox, decoded AvPlayer video frames and native packaging in previous versions. v1.4.0 CI compiled and host tests passed.  
-**Not verified:** v1.4.0 poster/season/source UI on emulator or console; acceptable sustained picture and audio, subtitles, hardware operation, true GPU textures, and production readiness.
+**CI verified:** portable C++ parsers, core logic, PS4 cross-compilation/PKG/ZIP format.  
+**User emulator verified in earlier versions:** native PS4 HTTPS TMDB/addon/TorBox and decoded video frames.  
+**Not yet verified:** new v1.4/v1.5 controller UI, live poster cache, user-filtered TMDB results, saved-list persistence, actual reliable picture/sound/subtitles and any physical PS4 playback.
 
 ### Quick resume command sequence
 
@@ -34,11 +35,10 @@ The documentation-creation commit necessarily changes HEAD after a887b6c; treat 
 
 ### Current downloadable artifacts
 
-- Emulator ZIP: https://github.com/mghazalyh/playtorrio-ps4/releases/download/ps4-cinematic-ui-1.4.0/PlayTorrio-PS4-shadPS4-extracted.zip (721,187 bytes at latest verified publication).
-- Experimental console PKG: https://github.com/mghazalyh/playtorrio-ps4/releases/download/ps4-cinematic-ui-1.4.0/PlayTorrio-PS4-GoldHEN-10.01-EXPERIMENTAL.pkg (6,619,136 bytes).
-- Both are built from native C++ via OpenOrbis. Title ID **BREW20346**, APP_VER and VERSION **01.40**.
-- ZIP contains BREW20346 and optional Windows HostTools; none of the latter are required for a console or native TMDB.
-- Note: workflow reuploads same release assets on subsequent docs-only main pushes, so use HEAD and workflow SHA to locate actual code.
+- **shadPS4 extracted ZIP:** https://github.com/mghazalyh/playtorrio-ps4/releases/download/ps4-advanced-discover-1.5.0/PlayTorrio-PS4-shadPS4-extracted.zip (approx. 761 KB).
+- **Experimental GoldHEN PKG:** https://github.com/mghazalyh/playtorrio-ps4/releases/download/ps4-advanced-discover-1.5.0/PlayTorrio-PS4-GoldHEN-10.01-EXPERIMENTAL.pkg (~6.62 MB).
+- Built for title **BREW20346**, APP_VER **01.50**. ZIP includes native BREW20346 plus optional legacy HostTools.
+- Release assets and successful CI checked before the documentation handover update; do not treat this as real emulator/console verification.
 
 ## 1. Why this repository exists / ownership and intent
 
@@ -325,6 +325,21 @@ Because this log ended immediately after source acceptance, it cannot by itself 
 
 **Remaining UI gaps:** artwork currently CPU-pixel blitted, not GPU Piglet textures; no polished backdrop/film gradients, rich cast/related rows, search/genre filtering, local resume or full language/subtitle choice. Current source candidates are filtered/auto-sorted but do offer manual choice; TorBox torrent resolution can enqueue only after explicit source selection. Native FFmpeg/GPU rendering, audio format conversion and hardware testing are separate tasks.
 
+### Stage L — Actual latest ptv3 source branch audit and v1.5 Advanced Discover port
+
+**Root cause of previous inaccurate feature evaluation:** The user's Windows/iOS `mghazalyh/ptv3` repository is unusual: default `main` has old Flutter app code plus mirrored documentation only. Actual product development and releases run from `parity-floating-player-both`. On 2026-10-27, compared release commit `16a4143fd085973b9f103e1faa05b4ec95ad3269` (v1.1.7 Build 127) and the subsequently added in-progress v1.1.8 commit `704ac440d3c0bd170cb2dbb28aff0f14ed1a9033` (cast filmographies/recommendation enrichment and Torriodb key-vault *proposal*, not shipped). Prior PS4 v1.4 comparison did not use active branch, so it missed important implemented behavior. Fully source-grounded audit: `docs/ptv3-active-feature-audit.md`.
+
+**Ported features into native PS4 v1.5:**
+- **Advanced Discover** (`src/advanced_discover.hpp`, `ps4/advanced_discover.cpp/.hpp`, `ps4/main.cpp`, tests): reproduce real `ptv3` `DiscoverFilters` semantics. Blank title uses `/discover/movie|tv`; nonblank uses `/search/movie|tv`; movie/year, TV-airing/year vs TV single search year, country, language, sort, top-rated minimum votes and page tracking. Client-side filtering/sorting of search result page, plus paced `/movie/id` original/production country details only when user selects text+movie+country. Never log keys or signed URLs. D-pad type/title/year/country/language/sort filter UI and 38-key title keyboard, values persisted locally in `/data/playtorrio/discover-filters.json`, changed query applied only on X Apply; future pages fetched asynchronously. UI expected to handle empty result pages.
+- **Source-backed Related** (`ps4/catalog_online.cpp/.hpp`, `ps4/main.cpp`): genuine TMDB `/movie|tv/id/recommendations` plus `/similar` fallback, maximum 12 unique results, optional poster cards on title details with R1 and L1 back. No invented similarity score, BestSimilar or TVDB claims.
+- **Local-only My List** (`src/local_library.hpp`, `ps4/main.cpp`, tests): versioned, bounded, deduplicated saved TMDB titles written atomically to `/data/playtorrio/local-library.json`, mode 0600. Square toggles save on details and removes in My List; X opens saved title; L2/R2 paging. No tokens, signed streams or watch-progress time and **NO GitHub calls or watchlist sync**. Do not confuse with true Continue Watching.
+- **Source badges** (`src/source_badges.hpp`, `ps4/main.cpp`, tests): label probable resolution, codec and HDR based on addon name/title; DIRECT/TORBOX shown; never misrepresent as probed codec, playable guaranteed.
+- **Parity and handover** (`docs/ptv3-active-feature-audit.md`, `FEATURE_PARITY.md`, `README.md`, `AGENTS.md`, `handover.md`): current active source, exact test/release status, incomplete platform gaps, and ongoing handoff instructions.
+
+**CI:** First fully linked implementation in workflow **40393499317**, including `tests/advanced_discover_test.cpp` and `tests/local_library_test.cpp` plus PS4 native package, passed. Final source badge + preference regression in workflow **40394164687** passed. Release **ps4-advanced-discover-1.5.0** contains shadPS4 ZIP and experimental PKG. No user shadPS4 screenshot/log for v1.5, no physical console runtime test.
+
+**Important known gaps:** v1.1.8 filmography, actor identity selection and network/studio/country card enrichment are NOT on PS4. Full Windows/iOS scope also covers advanced Spotify-like music, IPTV, downloads, manga/books/audiobooks/anime, Trakt/Simkl, full player subtitle/audio/seek and actual Continue Watching; these require distinct console-native design, not naive copying Flutter code. Latest v1.1.8 Torriodb vault is a *proposal* and PS4 must never upload secrets or enable GitHub sync. The current GPU/video quality and PCM audio limitations remain.
+
 ## 5. Important architecture and debugging discoveries (do not lose)
 
 ### 5.1 HTTP transport symptom versus root cause
@@ -505,6 +520,15 @@ A genuine final version requires direct native PS4 install/use with real hardwar
 10. Do not silently switch on GitHub sync.
 
 ## 9. CHANGE LOG — append new work here (newest first)
+
+### 2026-10-27 — v1.5 source-backed Windows/iOS feature catch-up (CI PASS; shadPS4 PENDING)
+- **User correction:** Previous feature comparison examined `ptv3` default `main` rather than real active `parity-floating-player-both`. Verified released v1.1.7 Build 127, also observed unreleased v1.1.8 actor-filmography branch commit; reconstructed source-grounded feature matrix in docs/ptv3-active-feature-audit.md.
+- **Work:** Native combined-title Advanced Discover (TMDB `search` vs `discover`, year/country/language/sort, client-side text filters, paced movie-country verification, controller D-pad text keyboard, remote pagination, locally saved preferences). Genuine TMDB recommendations/similar cards accessible R1/L1. Local-only saved titles My List at /data/playtorrio/local-library.json. Display quality/codec/HDR addon-hint badges in manual source picker. No cloud/watchlist or credential vault operations.
+- **Files:** `src/advanced_discover.hpp`, `ps4/advanced_discover.cpp/.hpp`, `src/local_library.hpp`, `src/source_badges.hpp`, `ps4/main.cpp`, `ps4/catalog_online.cpp/.hpp`, `tests/advanced_discover_test.cpp`, `tests/local_library_test.cpp`, `tests/source_badges_test.cpp`, build and workflow release config, docs/readme/agents/parity.
+- **Verified:** C++ tests and PS4 OpenOrbis cross-compile/PKG+ZIP validation in GitHub Actions **40394164687**, native release **ps4-advanced-discover-1.5.0** with both assets.
+- **Not verified:** new UI behavior, live TMDB filter quality/pagination, disk saved-list writes and selected source on shadPS4 or real PS4, nor sustained video/audio. Actual screenshot/log and hardware test required; preserve privacy and don't claim parity for v1.1.8 filmography, optional TVDB, audio/subs or external services.
+
+
 
 ### 2026-10-27 — v1.4.0 UI follow-up, confirmed final CI and release
 - After initial v1.4.0 features, corrected selected source playback failures to remain visible inside the source picker instead of silently returning to a stale state; added HOME movie shelf mini-posters and catalog parsing assertions for offline/native poster/backdrop metadata.
