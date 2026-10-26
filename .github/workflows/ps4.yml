@@ -31,6 +31,8 @@ jobs:
           /tmp/ptv-advanced-tests
           g++ -std=c++17 -Wall -Wextra -Werror tests/local_library_test.cpp -o /tmp/ptv-local-list-tests
           /tmp/ptv-local-list-tests
+          g++ -std=c++17 -Wall -Wextra -Werror tests/source_badges_test.cpp -o /tmp/ptv-source-badges-tests
+          /tmp/ptv-source-badges-tests
 
   pkg:
     name: Build genuine PS4 experimental package
