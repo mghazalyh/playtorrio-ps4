@@ -6,10 +6,50 @@
 #include <orbis/_types/http.h>
 #include <cstdint>
 #include <algorithm>
+#include <cctype>
+#include <limits>
 #include <string>
 
+// The OpenOrbis header declares sceHttpSetAutoRedirect as an untyped
+// placeholder; this alias preserves its actual PS4 two-argument ABI.
+extern "C" int32_t ptvHttpSetAutoRedirect(int32_t,int32_t)
+    asm("sceHttpSetAutoRedirect");
 namespace ps4net {
 static int networkPool=0,ssl=0,http=0;
+static std::string trim(std::string s){
+  const auto isSpace=[](unsigned char c){return c==' '||c=='\t'||c=='\r'||c=='\n';};
+  while(!s.empty()&&isSpace((unsigned char)s.front()))s.erase(s.begin());
+  while(!s.empty()&&isSpace((unsigned char)s.back()))s.pop_back();
+  return s;
+}
+static void readResponseHeaders(int req,Response& r){
+  char* raw=nullptr;
+  size_t count=0;
+  if(sceHttpGetAllResponseHeaders(req,&raw,&count)<0 || !raw || count>65536)return;
+  std::string all(raw,count);
+  size_t pos=0;
+  while(pos<all.size()){
+    const size_t end=all.find("\r\n",pos);
+    const std::string line=all.substr(pos,(end==std::string::npos?all.size():end)-pos);
+    pos=end==std::string::npos?all.size():end+2;
+    auto colon=line.find(':');
+    if(colon==std::string::npos)continue;
+    std::string name=line.substr(0,colon);
+    std::transform(name.begin(),name.end(),name.begin(),[](unsigned char c){return (char)std::tolower(c);});
+    const std::string val=trim(line.substr(colon+1));
+    if(name=="content-range")r.content_range=val.substr(0,160);
+    else if(name=="accept-ranges")r.accept_ranges=val.substr(0,64);
+    else if(name=="content-length"){
+      uint64_t total=0;
+      bool good=!val.empty();
+      for(char c:val){
+        if(c<'0'||c>'9'||total>(std::numeric_limits<uint64_t>::max()-(c-'0'))/10){good=false;break;}
+        total=total*10+(c-'0');
+      }
+      if(good){r.content_length=total;r.has_content_length=true;}
+    }
+  }
+}
 bool init(int& error) {
   error=0;
   if(http>0)return true;
@@ -54,6 +94,9 @@ Response request(const std::string& url,const std::string& method,
   sceHttpSetConnectTimeOut(req,7*1000000);
   sceHttpSetResolveTimeOut(req,7*1000000);
   sceHttpSetSendTimeOut(req,10*1000000);
+  // TorBox and other CDN links frequently redirect to expiring media URLs.
+  // Follow normal HTTP redirects while retaining HTTPS-only input validation.
+  ptvHttpSetAutoRedirect(req,1);
   for(const auto& h:headers) {
     if(h.first.find_first_of("\r\n")!=std::string::npos ||
        h.second.find_first_of("\r\n")!=std::string::npos)continue;
@@ -69,6 +112,7 @@ Response request(const std::string& url,const std::string& method,
     int underlying=0;
     if(sceHttpGetLastErrno(req,&underlying)>=0)result.last_errno=underlying;
     if(rc<0){result.platform_error=rc;goto done;}
+    readResponseHeaders(req,result);
   }
   if(method=="HEAD")goto done;
   while(result.body.size()<limit) {

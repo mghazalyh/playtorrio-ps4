@@ -179,7 +179,9 @@ Selection resolve(const ptv::Settings& s,const std::string& mediaType,
     auto streams=ptv::parse_streams(response.body,addon,error);
     chosen.sources+=(int)streams.size();
     for(const auto& stream:streams){
-      if(stream.is_playable()&&stream.url.rfind("https://",0)==0){
+      const auto cleanPath=stream.url.substr(0,stream.url.find('?'));
+      if(stream.is_playable()&&stream.url.rfind("https://",0)==0 &&
+         cleanPath.find(".m3u8")==std::string::npos){
         chosen.url=stream.url;chosen.reason="Direct addon HTTP video";
         ps4diag::note("RESOLVE","PASS addon returned playable HTTPS stream");
         return chosen;

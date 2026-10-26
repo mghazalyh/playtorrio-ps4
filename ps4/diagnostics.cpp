@@ -185,7 +185,7 @@ Summary run(const ptv::Settings& cfg,bool githubWriteCheck){
     }
     mark(s,"TORBOX",valid,"authenticated user endpoint "+outcome(user));
     auto files=ps4net::request("https://api.torbox.app/v1/api/torrents/mylist",
-                               "GET",hdr,"",512*1024);
+                               "GET",hdr,"",4*1024*1024);
     mark(s,"TORBOX",good(files),"torrent inventory endpoint "+outcome(files));
     if(cfg.torbox_torrent_id>=0&&cfg.torbox_file_id>=0){
       auto dl=ps4net::request(ptv::torbox_request_url(
@@ -271,7 +271,7 @@ Summary run(const ptv::Settings& cfg,bool githubWriteCheck){
   }
   // Avoid pretending native AvPlayer/MPV works: SDK methods have incomplete
   // typed declarations and no media pipeline is included in this PKG.
-  skip(s,"PLAYBACK","Video decoder, audio tracks and subtitle renderer not integrated");
+  skip(s,"PLAYBACK","Live video playback must be tested by selecting a title; range streaming enabled");
   note("SUMMARY","passed="+std::to_string(s.passed)+" failed="+
       std::to_string(s.failed)+" skipped="+std::to_string(s.skipped)+
       " parsed_streams="+std::to_string(s.addon_streams)+

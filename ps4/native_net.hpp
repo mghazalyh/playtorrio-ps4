@@ -1,5 +1,6 @@
 #pragma once
 #include <map>
+#include <cstdint>
 #include <string>
 
 namespace ps4net {
@@ -7,6 +8,10 @@ struct Response {
   int status=0;
   int platform_error=0;
   int last_errno=0;
+  std::string content_range;
+  std::string accept_ranges;
+  uint64_t content_length=0;
+  bool has_content_length=false;
   bool truncated=false;
   std::string body;
 };

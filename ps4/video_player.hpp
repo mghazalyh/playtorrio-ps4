@@ -4,6 +4,8 @@
 #include <cstdint>
 #include <string>
 #include <thread>
+#include <mutex>
+#include <vector>
 #include "avplayer_abi.hpp"
 class Scene2D;
 namespace ps4video {
@@ -25,6 +27,11 @@ private:
   static void* allocate(void*,uint32_t,uint32_t);
   static void deallocate(void*,void*);
   void audioLoop();
+  static int openRemote(void*,const char*);
+  static int closeRemote(void*);
+  static int readRemote(void*,uint8_t*,uint64_t,uint32_t);
+  static uint64_t remoteSize(void*);
+  bool prepareRemote(const std::string& url,std::string& error);
   AvHandle handle_=nullptr;
   std::atomic<Status> status_{Status::Idle};
   std::chrono::steady_clock::time_point startTime_{};
@@ -34,5 +41,11 @@ private:
   std::atomic<bool> audioRunning_{false};
   std::thread audioThread_;
   int user_=-1;
+  std::string remoteUrl_;
+  uint64_t remoteBytes_=0;
+  uint64_t cacheOffset_=0;
+  std::vector<uint8_t> cache_;
+  std::mutex remoteMutex_;
+  bool readFailureLogged_=false;
 };
 }

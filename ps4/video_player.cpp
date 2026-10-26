@@ -1,17 +1,141 @@
 #include "video_player.hpp"
 #include "diagnostics.hpp"
+#include "native_net.hpp"
 #include <cstdlib>
 #include <cstring>
 #include <algorithm>
 #include <vector>
 #include <chrono>
 #include <cctype>
+#include <limits>
+#include <cstdio>
 #include <orbis/AudioOut.h>
 #include <orbis/Sysmodule.h>
 #include <orbis/UserService.h>
 #include "graphics.h"
 
 namespace ps4video {
+namespace {
+constexpr size_t kRemoteBlock=256*1024;
+// Strictly parse RFC 7233 Content-Range: "bytes start-end/total".
+bool parseContentRange(const std::string& input,uint64_t& begin,
+                       uint64_t& finish,uint64_t& total){
+  const std::string prefix="bytes ";
+  if(input.compare(0,prefix.size(),prefix)!=0)return false;
+  size_t pos=prefix.size();
+  auto number=[&](uint64_t& out)->bool{
+    if(pos>=input.size()||input[pos]<'0'||input[pos]>'9')return false;
+    uint64_t value=0;
+    do{
+      const int digit=input[pos]-'0';
+      if(value>(std::numeric_limits<uint64_t>::max()-digit)/10)return false;
+      value=value*10+digit;
+      ++pos;
+    }while(pos<input.size()&&input[pos]>='0'&&input[pos]<='9');
+    out=value;
+    return true;
+  };
+  if(!number(begin)||pos>=input.size()||input[pos++]!='-'||
+     !number(finish)||pos>=input.size()||input[pos++]!='/'||
+     !number(total)||pos!=input.size())return false;
+  return total>0&&total<=(uint64_t)std::numeric_limits<int64_t>::max()&&
+         begin<=finish&&finish<total;
+}
+bool isHls(const std::string& url){
+  const auto until=url.substr(0,url.find('?'));
+  return until.find(".m3u8")!=std::string::npos;
+}
+}
+
+bool Player::prepareRemote(const std::string& url,std::string& error){
+  // A short ranged probe both measures the file and verifies seeking.
+  // Do not use a full GET: shadPS4's current HTTP backend buffers responses.
+  const auto head=ps4net::request(url,"HEAD",{},"",0);
+  ps4diag::note("VIDEO_IO","HEAD http="+std::to_string(head.status)+
+     " transport="+std::to_string(head.platform_error)+
+     " content_length="+std::to_string(head.has_content_length));
+  if(head.status!=200||head.platform_error!=0||!head.has_content_length||
+     head.content_length==0||head.content_length>(uint64_t)std::numeric_limits<int64_t>::max()){
+    error="Stream does not provide a usable HTTPS HEAD length";
+    ps4diag::note("VIDEO_IO","FAIL remote HEAD metadata");return false;
+  }
+  // Probe 64 KiB. Servers that ignore Range (HTTP 200) are not safe to
+  // stream through shadPS4's buffering HTTP emulation.
+  const uint64_t last=std::min(uint64_t(65535),head.content_length-1);
+  const std::string range="bytes=0-"+std::to_string(last);
+  const auto first=ps4net::request(url,"GET",{{"Range",range}},"",(size_t)last+2);
+  uint64_t a=0,b=0,n=0;
+  if(first.status!=206||first.platform_error!=0||
+     !parseContentRange(first.content_range,a,b,n)||
+     a!=0||b!=last||n!=head.content_length||
+     first.truncated||first.body.size()!=last+1){
+    error="CDN does not supply seekable HTTP 206 byte ranges";
+    ps4diag::note("VIDEO_IO","FAIL Range http="+std::to_string(first.status)+
+      " transport="+std::to_string(first.platform_error)+
+      " bytes="+std::to_string(first.body.size())+
+      " range_ok="+std::to_string(!first.content_range.empty()));
+    return false;
+  }
+  remoteUrl_=url;
+  remoteBytes_=n;
+  cacheOffset_=0;
+  cache_.assign(first.body.begin(),first.body.end());
+  readFailureLogged_=false;
+  ps4diag::note("VIDEO_IO","PASS seekable media range, total bytes="+std::to_string(n));
+  return true;
+}
+int Player::openRemote(void* ptr,const char* name){
+  auto* self=static_cast<Player*>(ptr);
+  return self&&name&&std::strcmp(name,"/ptvremote.mp4")==0&&
+         !self->remoteUrl_.empty()&&self->remoteBytes_>0?0:-1;
+}
+int Player::closeRemote(void* ptr){
+  return ptr?0:-1;
+}
+uint64_t Player::remoteSize(void* ptr){
+  auto* self=static_cast<Player*>(ptr);
+  return self?self->remoteBytes_:0;
+}
+int Player::readRemote(void* ptr,uint8_t* out,uint64_t position,uint32_t length){
+  auto* self=static_cast<Player*>(ptr);
+  if(!self||!out||length==0||self->remoteUrl_.empty())return -1;
+  std::lock_guard<std::mutex> lock(self->remoteMutex_);
+  if(position>=self->remoteBytes_)return 0;
+  const uint32_t want=(uint32_t)std::min(uint64_t(length),self->remoteBytes_-position);
+  uint32_t copied=0;
+  while(copied<want){
+    const uint64_t offset=position+copied;
+    if(self->cache_.empty()||offset<self->cacheOffset_||
+       offset-self->cacheOffset_>=self->cache_.size()){
+      const uint64_t start=(offset/kRemoteBlock)*kRemoteBlock;
+      const uint64_t end=std::min(self->remoteBytes_-1,start+kRemoteBlock-1);
+      auto response=ps4net::request(self->remoteUrl_,"GET",
+          {{"Range","bytes="+std::to_string(start)+"-"+std::to_string(end)}},
+          "",(size_t)(end-start)+2);
+      uint64_t a=0,b=0,n=0;
+      if(response.status!=206||response.platform_error!=0||
+         response.truncated||!parseContentRange(response.content_range,a,b,n)||
+         a!=start||b!=end||n!=self->remoteBytes_||
+         response.body.size()!=end-start+1){
+        if(!self->readFailureLogged_){
+          ps4diag::note("VIDEO_IO","FAIL remote read http="+
+            std::to_string(response.status)+" transport="+
+            std::to_string(response.platform_error)+" errno="+
+            std::to_string(response.last_errno));
+          self->readFailureLogged_=true;
+        }
+        return copied?int(copied):-1;
+      }
+      self->cacheOffset_=start;
+      self->cache_.assign(response.body.begin(),response.body.end());
+    }
+    const size_t into=(size_t)(offset-self->cacheOffset_);
+    const uint32_t available=std::min((size_t)(want-copied),self->cache_.size()-into);
+    std::memcpy(out+copied,self->cache_.data()+into,available);
+    copied+=available;
+  }
+  return (int)copied;
+}
 void* Player::allocate(void*,uint32_t alignment,uint32_t size){
   if(alignment<sizeof(void*))alignment=sizeof(void*);
   if((alignment&(alignment-1))!=0)return nullptr;
@@ -26,6 +150,14 @@ bool Player::start(const std::string& url,std::string& error){
     ps4diag::note("PLAYBACK","FAIL unsupported URL scheme (URL hidden)");
     status_=Status::Failed;return false;
   }
+  // Reject HLS playlists: shadPS4 AvPlayer currently does not implement
+  // HLS. Downloading HLS as a regular file cannot produce playable video.
+  if(isHls(url)){error="HLS playlist playback is unsupported by shadPS4";
+    ps4diag::note("PLAYBACK","FAIL HLS format not supported by emulator");
+    status_=Status::Failed;return false;
+  }
+  const bool remote=url.rfind("https://",0)==0||url.rfind("http://",0)==0;
+  if(remote && !prepareRemote(url,error)){status_=Status::Failed;return false;}
   // No URL or query string may be written to any logfile.
   int sys=sceSysmoduleLoadModule(ORBIS_SYSMODULE_AV_PLAYER);
   if(sys<0){last_error_=sys;error="Cannot load PS4 hardware AvPlayer";
@@ -37,6 +169,13 @@ bool Player::start(const std::string& url,std::string& error){
   init.alloc.deallocate=&Player::deallocate;
   init.alloc.allocateTexture=&Player::allocate;
   init.alloc.deallocateTexture=&Player::deallocate;
+  if(remote){
+    init.file.object=this;
+    init.file.open=&Player::openRemote;
+    init.file.close=&Player::closeRemote;
+    init.file.readOffset=&Player::readRemote;
+    init.file.size=&Player::remoteSize;
+  }
   init.basePriority=160;
   init.videoBuffers=4;
   init.autoStart=1;
@@ -44,9 +183,10 @@ bool Player::start(const std::string& url,std::string& error){
   handle_=sceAvPlayerInit(&init);
   if(!handle_){error="Cannot initialize PS4 video decoder";status_=Status::Failed;
     ps4diag::note("PLAYBACK","FAIL sceAvPlayerInit returned null");return false;}
-  const bool hls=url.find(".m3u8")!=std::string::npos;
-  int ret=hls?sceAvPlayerAddSourceEx(handle_,8,url.c_str()):
-              sceAvPlayerAddSource(handle_,url.c_str());
+  // The emulator cannot open arbitrary HTTPS URLs as PS4 mounted files.
+  // The guest file callbacks above present a seekable remote MP4-compatible
+  // byte stream to the emulator's FFmpeg demuxer.
+  int ret=sceAvPlayerAddSource(handle_,remote?"/ptvremote.mp4":url.c_str());
   if(ret<0){last_error_=ret;error="PS4 decoder rejected stream source";
     ps4diag::note("PLAYBACK","FAIL AddSource code="+std::to_string(ret));
     sceAvPlayerClose(handle_);handle_=nullptr;status_=Status::Failed;return false;
@@ -206,6 +346,10 @@ void Player::close(){
     sceAvPlayerStop(handle_);sceAvPlayerClose(handle_);
     handle_=nullptr;
   }
+  remoteUrl_.clear();
+  remoteBytes_=0;
+  cache_.clear();
+  cacheOffset_=0;
   status_=Status::Idle;
 }
 }

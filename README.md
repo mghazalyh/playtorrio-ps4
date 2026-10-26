@@ -1,4 +1,12 @@
-# PlayTorrio PS4 — HTTPS routing investigation (v1.2.1)
+# PlayTorrio PS4 — Seekable native HTTP video playback (v1.3.0)
+
+The shadPS4 `host_overrides.json` catch-all rule `"*": "localhost"` was confirmed to redirect every remote API to localhost. Remove that catch-all override and enable **Set Network Connected Status as True**, leaving **Disable HTTPS** unchecked.
+
+**Playback:** The previous `AddSource code=-2140536830` happened because shadPS4 AvPlayer attempts to open remote HTTPS URLs as PS4 filesystem paths. v1.3.0 uses AvPlayer's file-replacement callback ABI, with a 64 KiB HTTP Range preflight and bounded 256 KiB seekable range cache; the emulator's FFmpeg then demuxes the remote media using these callbacks. Direct sources must support HTTP HEAD with Content-Length and HTTP 206 byte ranges. HLS (`.m3u8`) is not currently supported by shadPS4. No full movie download or Windows HostTools step is required for a compatible remote stream. Actual video/audio playback still needs a test on your emulator; compilation alone cannot guarantee it.
+
+Play a movie from Discover using **X**, then inspect `VIDEO_IO`, `PLAYBACK` and `AUDIO` in `diagnostics.log` if it does not render. The selected streams may be MKV or MP4; both depend on codec and FFmpeg support. `githubSyncEnabled=false` remains unchanged.
+
+---
 
 The v1.2 logs show HTTPS 200 for example.com while TMDB, an addon and both TorBox endpoints all return an HTML 404 of exactly 389 bytes. A likely cause is shadPS4's `host_overrides.json`, particularly a `"*"` wildcard that routes unrelated domains to one web server.
 
