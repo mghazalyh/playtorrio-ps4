@@ -72,14 +72,19 @@ void txt(Scene2D& s,const Fonts& f,const std::string& str,int x,int baseline,
   s.DrawText(const_cast<char*>(str.c_str()),font,x,baseline,bg,fg);
 }
 void stripe(Scene2D& s){
-  // 720p safe-area hero: only 168px tall, leaving room for 16 tiles.
-  for(int x=0;x<1280;x+=8){
+  for(int x=0;x<1280;x+=12){
     float t=(float)x/1280.f;
-    rect(s,x,76,8,174,lerp({18,20,34},{38,26,66},t));
+    rect(s,x,77,12,223,lerp({21,27,46},{42,27,63},t));
   }
-  circle(s,1053,163,88,{55,38,89});
-  circle(s,1053,163,65,{75,51,116});
-  circle(s,1053,163,39,{109,70,151});
+  round(s,902,100,112,193,14,{45,49,82});
+  round(s,1018,87,110,206,14,{64,49,94});
+  round(s,1132,111,89,180,14,{35,51,76});
+  for(int i=0;i<6;i++){
+    rect(s,911,114+i*28,93,2,{73,77,119});
+    rect(s,1028,105+i*31,90,2,{99,77,136});
+    rect(s,1141,123+i*27,70,2,{61,81,117});
+  }
+  rect(s,0,298,1280,2,{46,39,70});
 }
 void statusPill(Scene2D& s,const Fonts& font,bool connected,int x,int y,
                 const std::string& title){
@@ -88,16 +93,17 @@ void statusPill(Scene2D& s,const Fonts& font,bool connected,int x,int y,
   txt(s,font,title,x+31,y+23,connected?green:gold,1);
 }
 void nav(Scene2D& s,const Fonts& fonts,int tab){
-  rect(s,0,0,1280,74,{13,16,26});
-  txt(s,fonts,"PlayTorrio",48,49,paper,3);
-  circle(s,31,38,7,purple);
-  const int xpos[]={500,584,696,798,896};
+  rect(s,0,0,1280,76,{12,15,26});
+  round(s,40,24,25,25,8,purple);
+  rect(s,49,32,7,7,{250,245,255});
+  txt(s,fonts,"PlayTorrio",79,54,paper,3);
+  const int pos[]={486,592,712,842,952};
   for(int i=0;i<5;i++){
-    txt(s,fonts,labels[i],xpos[i],45,tab==i?paper:muted,1);
-    if(tab==i)round(s,xpos[i],63,34,2,1,purple);
+    txt(s,fonts,labels[i],pos[i],47,tab==i?paper:muted,1);
+    if(tab==i)round(s,pos[i],70,42,3,1,purple);
   }
-  round(s,1133,20,101,30,13,{37,32,52});
-  txt(s,fonts,"PS4 PREVIEW",1146,41,{201,174,255},0);
+  round(s,1131,24,109,29,14,{35,37,56});
+  txt(s,fonts,"PS4 ALPHA",1148,44,{196,175,247},0);
 }
 void heading(Scene2D& s,const Fonts& f,const std::string& title,
              const std::string& subtitle){
@@ -105,43 +111,59 @@ void heading(Scene2D& s,const Fonts& f,const std::string& title,
   txt(s,f,subtitle,52,155,muted,1);
 }
 void featureCard(Scene2D& s,const Fonts& f,int x,int y,int index,bool selected){
-  constexpr int w=132;
-  constexpr int h=137;
-  const char* names[]={"Movies","Series","My List","Addons","TorBox","Settings","Search","History",
-                       "Library","Manifests","Keys","USB import","Streams","Audio","Subtitles","Player"};
-  const char* tags[]={"BROWSE","EPISODES","CLOUD","STREMIO","DEBRID","CONFIG","FIND","ACTIVITY",
-                      "JSON V1","SOURCES","PRIVATE","SETUP","PARSERS","ENGLISH","ENGLISH","PREVIEW"};
-  const C hues[]={{51,35,82},{30,66,84},{72,42,75},{46,47,84},
-                  {27,76,70},{66,45,69},{49,52,91},{49,56,70}};
-  C hue=hues[index%8];
-  round(s,x,y,w,h,10,selected?purple:line);
-  round(s,x+2,y+2,w-4,h-4,9,lerp(hue,bg,.25f));
-  round(s,x+11,y+11,67,19,8,{33,29,48});
-  txt(s,f,tags[index],x+16,y+26,{207,192,239},0);
-  circle(s,x+95,y+51,23,lerp(hue,purple,.26f));
-  circle(s,x+95,y+51,12,lerp(hue,paper,.16f));
-  txt(s,f,names[index],x+11,y+103,paper,1);
-  if(index>=8)
-    txt(s,f,index==8?"Same format":index==9?"Saved URLs":index==10?"On console":
-            index==11?"From USB":index==12?"No network":index==13?"Planned":
-            index==14?"Planned":"Not ready",x+11,y+122,muted,0);
-  else txt(s,f,"Open section",x+11,y+122,muted,0);
-  if(selected)round(s,x+11,y+h-4,w-22,2,1,{236,206,255});
+  constexpr int w=182,h=153;
+  const char* names[]={"Movies","TV Series","My List","Addons","TorBox","Settings"};
+  const char* small[]={"Browse films","Seasons & episodes","GitHub watchlist",
+                      "Stremio sources","Debrid account","Import & playback"};
+  const char* label[]={"EXPLORE","EPISODES","SYNC","SOURCES","DEBRID","CONFIG"};
+  const C tones[]={{57,38,89},{29,62,84},{38,60,65},
+                   {54,44,83},{39,57,77},{71,47,63}};
+  C col=tones[index%6];
+  round(s,x-2,y-2,w+4,h+4,12,selected?purple:line);
+  round(s,x,y,w,h,10,col);
+  for(int i=0;i<48;i+=4){
+    C glow=lerp(col,{114,88,148},(float)i/104.f);
+    rect(s,x+w-49+i,y+10,4,91,glow);
+  }
+  round(s,x+15,y+16,76,23,8,{25,29,43});
+  txt(s,f,label[index%6],x+23,y+33,{198,189,223},0);
+  rect(s,x+15,y+78,w-30,1,{101,95,124});
+  txt(s,f,names[index%6],x+14,y+113,paper,2);
+  txt(s,f,small[index%6],x+15,y+138,{199,194,214},0);
+  if(selected)rect(s,x+15,y+h-4,w-30,3,{226,201,255});
 }
-void home(Scene2D& s,const Fonts& f,int cardFocus){
+void miniCard(Scene2D& s,const Fonts& f,int x,int y,int index,
+              bool selected,const ps4diag::Summary& diag){
+  constexpr int w=182,h=76;
+  const char* headings[]={"My List","Import settings","Test services","My addons",
+                         "Try playback","Playback logs"};
+  const char* desc[]={"Your saved titles","USB / local JSON","Press Triangle",
+                     "Manage manifests","Start a stream","FTP diagnostics"};
+  std::string hint=desc[index];
+  if(index==0&&diag.library_titles>0)
+    hint=std::to_string(diag.library_titles)+" titles in cloud";
+  if(index==3&&diag.addon_streams>0)
+    hint=std::to_string(diag.addon_streams)+" stream sources";
+  round(s,x-2,y-2,w+4,h+4,11,selected?purple:line);
+  round(s,x,y,w,h,9,{23,29,43});
+  rect(s,x+14,y+15,3,43,index%2?C{65,147,179}:purple);
+  txt(s,f,headings[index],x+27,y+33,paper,1);
+  txt(s,f,hint,x+27,y+59,muted,0);
+}
+void home(Scene2D& s,const Fonts& f,int cardFocus,
+          const ps4diag::Summary& diag){
   stripe(s);
-  round(s,54,93,128,22,10,{64,49,99});
-  txt(s,f,"EARLY PREVIEW",66,109,{228,213,255},0);
-  txt(s,f,"PlayTorrio for PS4",52,166,paper,5);
-  txt(s,f,"Browse your sections with the controller.",54,206,muted,1);
-  round(s,903,191,243,27,12,{55,40,83});
-  txt(s,f,"STREAMING STILL IN DEVELOPMENT",915,210,{229,210,255},0);
-  txt(s,f,"EXPLORE",52,285,paper,2);
-  txt(s,f,"8 sections per row",1034,284,muted,0);
-  for(int i=0;i<8;i++)featureCard(s,f,52+i*148,301,i,i==cardFocus);
-  txt(s,f,"YOUR PLAYTORRIO",52,479,paper,2);
-  txt(s,f,"Local setup and feature status",917,478,muted,0);
-  for(int i=0;i<8;i++)featureCard(s,f,52+i*148,494,i+8,i+8==cardFocus);
+  round(s,51,103,139,23,11,{67,49,91});
+  txt(s,f,"PLAYTORRIO FOR TV",62,120,{219,206,255},0);
+  txt(s,f,"Your next watch.",49,194,paper,5);
+  txt(s,f,"All your sources and your personal library. One screen.",52,233,muted,2);
+  txt(s,f,"STREMIO    TORBOX    MY LIST",53,267,{197,177,232},0);
+  txt(s,f,"Browse",52,342,paper,3);
+  txt(s,f,"Collections and account services",925,339,muted,0);
+  for(int i=0;i<6;i++)featureCard(s,f,53+i*198,368,i,i==cardFocus);
+  txt(s,f,"Quick access",52,564,paper,3);
+  txt(s,f,"Configured for your console",965,561,muted,0);
+  for(int i=0;i<6;i++)miniCard(s,f,53+i*198,584,i,i+6==cardFocus,diag);
 }
 void infoBox(Scene2D& s,const Fonts& f,int y,const std::string& name,
              const std::string& description,const std::string& info,
@@ -401,16 +423,32 @@ int main(){
       }
       if(pressed&ORBIS_PAD_BUTTON_R1){tab=(tab+1)%5;focus=0;}
       if(pressed&ORBIS_PAD_BUTTON_L1){tab=(tab+4)%5;focus=0;}
+      const int tabBeforeSelection=tab;
       if(tab==0){
-        if(pressed&ORBIS_PAD_BUTTON_RIGHT)focus=(focus/8)*8+(focus%8+1)%8;
-        if(pressed&ORBIS_PAD_BUTTON_LEFT)focus=(focus/8)*8+(focus%8+7)%8;
-        if(pressed&ORBIS_PAD_BUTTON_DOWN)focus=(focus+8)%16;
-        if(pressed&ORBIS_PAD_BUTTON_UP)focus=(focus+8)%16;
+        if(pressed&ORBIS_PAD_BUTTON_RIGHT)focus=(focus/6)*6+(focus%6+1)%6;
+        if(pressed&ORBIS_PAD_BUTTON_LEFT)focus=(focus/6)*6+(focus%6+5)%6;
+        if(pressed&ORBIS_PAD_BUTTON_DOWN)focus=(focus+6)%12;
+        if(pressed&ORBIS_PAD_BUTTON_UP)focus=(focus+6)%12;
         if(pressed&ORBIS_PAD_BUTTON_CROSS){
-          const int destinations[]={1,1,2,3,4,4,1,2,2,3,4,4,1,1,4,1};
-          const int option=focus;
-          tab=destinations[option];
-          focus=(option==4||option==10)?1:0;
+          if(focus==8){
+            if(!running.exchange(true)){
+              const auto snapshot=settings;
+              std::thread([&,snapshot](){
+                ps4diag::note("CONTROL","Starting service checks from quick access");
+                auto result=ps4diag::run(snapshot,true);
+                {std::lock_guard<std::mutex> guard(diagnosticMutex);
+                 diagnostic=std::move(result);tested=true;}
+                running.store(false);
+              }).detach();
+            }
+          }else if(focus==10){
+            requestPlayback(settings.diagnostic_type,settings.diagnostic_id);
+          }else{
+            const int destinations[]={1,1,2,3,4,4,2,4,0,3,0,4};
+            const int option=focus;
+            tab=destinations[option];
+            focus=0;
+          }
         }
       }else{
         if(pressed&(ORBIS_PAD_BUTTON_RIGHT|ORBIS_PAD_BUTTON_DOWN))
@@ -420,17 +458,17 @@ int main(){
       }
       if(pressed&ORBIS_PAD_BUTTON_CIRCLE){tab=0;focus=0;}
       if(!running.load() && ((pressed&ORBIS_PAD_BUTTON_SQUARE && tab==4)||
-         (pressed&ORBIS_PAD_BUTTON_CROSS && tab==4 && focus==0))){
+         (pressed&ORBIS_PAD_BUTTON_CROSS && tab==4 && focus==0 && tabBeforeSelection==4))){
         std::string result;
         imported=importUsb(settings,result);
         parseError=result;
         ps4diag::note("IMPORT",imported?
           "PASS local USB settings installed":"FAIL missing/invalid USB settings");
       }
-      if(pressed&ORBIS_PAD_BUTTON_CROSS && tab==1){
+      if(pressed&ORBIS_PAD_BUTTON_CROSS && tab==1 && tabBeforeSelection==1){
         requestPlayback(focus==1?"series":"movie",settings.diagnostic_id);
       }
-      if(pressed&ORBIS_PAD_BUTTON_CROSS && tab==2){
+      if(pressed&ORBIS_PAD_BUTTON_CROSS && tab==2 && tabBeforeSelection==2){
         std::string type="movie",id;
         {
           std::lock_guard<std::mutex> guard(diagnosticMutex);
@@ -441,7 +479,7 @@ int main(){
         }
         requestPlayback(type,id);
       }
-      if(pressed&ORBIS_PAD_BUTTON_CROSS && tab==3){
+      if(pressed&ORBIS_PAD_BUTTON_CROSS && tab==3 && tabBeforeSelection==3){
         requestPlayback(settings.diagnostic_type,settings.diagnostic_id);
       }
     }
@@ -492,7 +530,7 @@ int main(){
       }
       (void)frameDrawn;
     }else{
-      if(tab==0)home(*screen,fonts,focus);
+      if(tab==0)home(*screen,fonts,focus,snapshot);
       else{
         screen->FrameBufferFill(bg);
         section(*screen,fonts,tab,settings,imported,focus,parseError,snapshot);
