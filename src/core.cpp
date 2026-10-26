@@ -67,6 +67,15 @@ bool import_settings(const std::string& json,Settings& output,std::string& error
   if(!r.empty()&&r.find(' ')==std::string::npos&&r.find("..")==std::string::npos&&r.find('/')!=std::string::npos)s.github_repo=r;
   auto b=field(o,"githubBranch");if(b.empty())b=field(o,"github_branch");
   if(!b.empty()&&b.find(' ')==std::string::npos&&b.find("..")==std::string::npos)s.github_branch=b;
+  s.diagnostic_id=field(o,"diagnosticId");
+  auto mode=field(o,"diagnosticType");
+  if(mode=="movie"||mode=="series")s.diagnostic_type=mode;
+  auto tid=o.find("torboxTorrentId");
+  if(tid!=o.end()&&tid->second.is<double>()&&tid->second.get<double>()>=0)
+    s.torbox_torrent_id=(int)tid->second.get<double>();
+  auto fid=o.find("torboxFileId");
+  if(fid!=o.end()&&fid->second.is<double>()&&fid->second.get<double>()>=0)
+    s.torbox_file_id=(int)fid->second.get<double>();
   auto a=o.find("englishSubtitles");if(a!=o.end()&&a->second.is<bool>())s.subtitles_english=a->second.get<bool>();
   a=o.find("englishAudio");if(a!=o.end()&&a->second.is<bool>())s.audio_english=a->second.get<bool>();
   output=s;return true;
