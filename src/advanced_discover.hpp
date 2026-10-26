@@ -102,4 +102,31 @@ inline void sort_results(picojson::array& rows,const Filters& f){
   return sort_value(a.get<picojson::object>(),f)>sort_value(b.get<picojson::object>(),f);
  });
 }
+inline std::string save_preferences(const Filters& filters){
+ picojson::object o;
+ o["version"]=picojson::value(1.0);
+ o["series"]=picojson::value(filters.series);
+ o["title"]=picojson::value(filters.title);
+ o["fromYear"]=picojson::value((double)filters.from_year);
+ o["toYear"]=picojson::value((double)filters.to_year);
+ o["country"]=picojson::value(filters.country);
+ o["language"]=picojson::value(filters.language);
+ o["sort"]=picojson::value(filters.sort);
+ return picojson::value(o).serialize();
+}
+inline bool load_preferences(const std::string& json,Filters& result){
+ if(json.size()>8*1024)return false;
+ picojson::value root;
+ if(!picojson::parse(root,json).empty()||!root.is<picojson::object>())return false;
+ const auto& o=root.get<picojson::object>();
+ if(number(o,"version")!=1)return false;
+ Filters f;const auto ty=o.find("series");
+ if(ty!=o.end()&&ty->second.is<bool>())f.series=ty->second.get<bool>();
+ f.title=str(o,"title");f.country=str(o,"country");
+ f.language=str(o,"language");f.sort=str(o,"sort");
+ f.from_year=number(o,"fromYear");f.to_year=number(o,"toYear");
+ if(!valid(f))return false;
+ result=f;return true;
+}
+
 }
