@@ -44,3 +44,6 @@ Install the v0.4 GoldHEN 10.01 experimental PKG. This is **not** a finished movi
 **Side effect:** The GitHub write-permission check may create a new commit to the database repository, but submits the same JSON bytes guarded by its latest SHA. If another device edits concurrently, it returns a conflict instead of overwriting blindly. The existing watchlist entries are not edited by the diagnostic.
 
 **Known limitations:** There is no native media decoding, audio/subtitle rendering, automatic next-episode playback, or live continuously running library synchronization in this prototype. The tests verify the available API contracts and read/write connectivity—not end-to-end viewing. No console hardware test has been performed by the build server.
+
+### v0.5 watchlist preview
+A successful **Triangle** test downloads and validates the private JSON database, displays real library titles under **My List**, and retains an **offline private copy** at `/data/playtorrio/library-cache.json`. This is currently a read-only library view: editing, live background sync and full movie playback require further work. The same diagnostic run verifies GitHub Contents write permission using an identical-file SHA-guarded upload.
