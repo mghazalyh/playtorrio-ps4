@@ -2,6 +2,7 @@
 #include "native_net.hpp"
 #include "diagnostics.hpp"
 #include "../vendor/picojson.h"
+#include "../src/playback_choice.hpp"
 #include <algorithm>
 #include <cctype>
 #include <cstdlib>
@@ -178,14 +179,20 @@ Selection resolve(const ptv::Settings& s,const std::string& mediaType,
     std::string error;
     auto streams=ptv::parse_streams(response.body,addon,error);
     chosen.sources+=(int)streams.size();
+    // shadPS4 v0.20.0 currently only recognizes H.264, HEVC and AAC.
+    // Prefer H.264 / 1080p before unknown encodes or heavy 4K sources.
+    const ptv::Stream* preferred=nullptr;
+    int preferredScore=-1000000;
     for(const auto& stream:streams){
-      const auto cleanPath=stream.url.substr(0,stream.url.find('?'));
-      if(stream.is_playable()&&stream.url.rfind("https://",0)==0 &&
-         cleanPath.find(".m3u8")==std::string::npos){
-        chosen.url=stream.url;chosen.reason="Direct addon HTTP video";
-        ps4diag::note("RESOLVE","PASS addon returned playable HTTPS stream");
-        return chosen;
-      }
+      const int score=ptvplayback::score(stream);
+      if(score>preferredScore){preferredScore=score;preferred=&stream;}
+    }
+    if(preferred&&preferredScore>=0){
+      chosen.url=preferred->url;
+      chosen.reason="Preferred HTTPS video source";
+      ps4diag::note("RESOLVE","PASS preferred native video candidate score="+
+        std::to_string(preferredScore)+" sources="+std::to_string(streams.size()));
+      return chosen;
     }
     for(const auto& stream:streams){
       if(!s.torbox_api_key.empty()&&stream.info_hash.size()==40){

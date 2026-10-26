@@ -1,4 +1,8 @@
-# PlayTorrio PS4 — Decoder stall diagnostics (v1.3.2)
+# PlayTorrio PS4 — Codec-aware playback sources (v1.3.3)
+
+v1.3.1 accepted a remote media file without producing decoded frames. v1.3.2 instrumented read callbacks and fixed indefinite buffering. v1.3.3 additionally prefers H.264/AAC 1080p sources over AV1, VP9, and 4K alternatives to increase compatibility with the console-oriented AvPlayer path. Source descriptions are untrusted and preferences cannot guarantee codec compatibility; seekable byte-range HTTP and actual video decoding still require runtime verification.
+
+---
 
 The previous build accepted a 2.43 GB seekable HTTPS video but rendered no frames. This build corrects the AvPlayer boolean return declarations, logs decoder callback/HTTP range activity and detects stalls even if the decoder reports active. It does not claim playback is fixed without a runtime frame test.
 
