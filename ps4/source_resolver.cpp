@@ -209,4 +209,52 @@ Selection resolve(const ptv::Settings& s,const std::string& mediaType,
   ps4diag::note("RESOLVE","FAIL no compatible source; no private URL logged");
   return chosen;
 }
+Choices list_sources(const ptv::Settings& settings,const std::string& type,const std::string& id){
+  Choices found;
+  if(!settings.direct_stream_url.empty()){
+    Candidate c;c.stream.name="Local direct stream";c.stream.url=settings.direct_stream_url;
+    c.score=999;c.direct=true;found.entries.push_back(std::move(c));
+  }
+  if(id.empty()){found.error="Missing IMDb title or episode ID";return found;}
+  for(const auto& addon:settings.addons){
+    const auto url=ptv::stream_url(addon,type,id);
+    if(url.empty())continue;
+    auto res=ps4net::request(url,"GET",{},"",768*1024);
+    if(res.status!=200||res.platform_error||res.truncated)continue;
+    std::string error;
+    const auto streams=ptv::parse_streams(res.body,addon,error);
+    found.found+=(int)streams.size();
+    for(const auto& stream:streams){
+      if(found.entries.size()>=100)break;
+      const int score=ptvplayback::score(stream);
+      const bool direct=score>=0&&stream.url.rfind("https://",0)==0;
+      const bool debrid=!settings.torbox_api_key.empty()&&stream.info_hash.size()==40;
+      if(!direct&&!debrid)continue;
+      Candidate candidate;candidate.stream=stream;candidate.score=direct?score:0;
+      candidate.direct=direct;
+      found.entries.push_back(std::move(candidate));
+    }
+  }
+  std::stable_sort(found.entries.begin(),found.entries.end(),
+    [](const Candidate& a,const Candidate& b){return a.score>b.score;});
+  if(found.entries.empty())found.error="No playable direct or TorBox sources found";
+  ps4diag::note("SOURCES","Discovery done; choices="+std::to_string(found.entries.size())+
+                 " offered="+std::to_string(found.found));
+  return found;
+}
+Selection resolve_selected(const ptv::Settings& settings,const Candidate& selected){
+  Selection out;out.sources=1;
+  if(selected.direct){
+    if(selected.stream.url.rfind("https://",0)!=0){out.reason="Source URL not HTTPS";return out;}
+    out.url=selected.stream.url;out.reason="User-selected HTTPS stream";return out;
+  }
+  if(selected.stream.info_hash.size()!=40||settings.torbox_api_key.empty()){
+    out.reason="Selected torrent source requires TorBox";return out;
+  }
+  out.url=torboxHash(settings,selected.stream);
+  out.from_torbox=!out.url.empty();
+  out.reason=out.from_torbox?"User-selected TorBox source":"TorBox could not prepare this source";
+  return out;
+}
+
 }
