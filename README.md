@@ -1,3 +1,18 @@
+# PlayTorrio PS4 — Video picture-quality experiment (v1.3.5)
+
+**Why the picture looked pixelated:** v1.3.4 converted a decoded video frame into at most a 960×540 image and replicated each sampled pixel into a 2×2 square. The PS4 screen is 1280×720. HD sources also used an SD BT.601 YUV-to-RGB formula and the crop/full-range flags were ignored.
+
+**Reference research (ideas, not copied source):**
+- [Navinas3460/Stremio-PS4](https://github.com/Navinas3460/Stremio-PS4): a PS4-native AvPlayer path with properly cropped/full-range NV12, a separate conversion thread and Piglet/OpenGL ES GPU textures with GL_LINEAR filtering; hardware tested by its author.
+- [thcolin/gamepad-media-center-aggregator](https://github.com/thcolin/gamepad-media-center-aggregator): a Borealis/libmpv/FFmpeg approach with OpenGL precompiled shaders on PS4; more dependencies and an architectural migration, not a drop-in patch.
+- Both are references, **not source-code imports**. Stremio-PS4 uses GPL-3.0; GMCA is Apache-2.0. Evaluate licensing before reusing implementation code.
+
+**v1.3.5 changes:** a new independently written, host-tested `src/nv12_scaler.hpp` performs per-pixel bilinear resampling of Y and UV planes, limited/full-range BT.601/BT.709 selection, padded-stride handling and crop-aware output at up to the complete 1280×720 PS4 frame. A new regression test checks gradient detail, brightness, padding and invalid layouts. `ps4/video_player.cpp` still uses native PS4 AvPlayer and VideoOut (no Windows video dependencies). VIDEO_QUALITY diagnostics report actual display resolution, BT.709 choice and measured conversion time. The long-term renderer target remains asynchronous conversion plus Piglet GPU textures with linear filtering.
+
+**Tradeoff:** per-pixel CPU bilinear scaling could cost more CPU than the old block renderer, reducing frame rate. This is a picture-quality experiment, **not proven smooth playback or audio**. Actual console hardware is still untested. Compare the rendered appearance and `VIDEO_QUALITY convert_ms` in the sanitized diagnostic log before deciding whether to retain it. GitHub watchlist synchronization remains disabled.
+
+---
+
 # PlayTorrio PS4 — Cached native video presentation (v1.3.4)
 
 The latest user shadPS4 diagnostics from **v1.3.3** prove one show decoded **97 video frames**, although only a brief flashing logo appeared instead of stable playback. Another show's CDN returned HTTP **429** after ~99 requests of 256 KiB each; no decoded frames. AudioOut returned **0x8026000E (already initialized)** and the app incorrectly aborted sound output.
