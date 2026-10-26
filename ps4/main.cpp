@@ -929,6 +929,29 @@ int main(){
       sourceBusy.store(false);
     }).detach();
   };
+
+  ptvdiscover::Filters pendingBrowseFilters;
+  auto requestAdvanced=[&](int pageNumber){
+    if(browseBusy.exchange(true))return;
+    ptvdiscover::Filters request=filters;
+    request.page=pageNumber;
+    if(!ptvdiscover::valid(request)){
+      browseMessage="Invalid year range or filter settings";
+      browseBusy.store(false);return;
+    }
+    browseMessage="Loading TMDB Discover page...";
+    const auto config=settings;
+    std::thread([&,config,request](){
+      ptvdiscover::Page next;
+      try{next=ptvdiscover::fetch(config,request);}
+      catch(...){next.error="Unexpected TMDB Discover error";}
+      {std::lock_guard<std::mutex> lock(browseMutex);
+       pendingBrowse=std::move(next);
+       pendingBrowseFilters=request;
+       browseReady=true;}
+      browseBusy.store(false);
+    }).detach();
+  };
   uint32_t previous=0;
   ps4diag::note("BOOT","PASS entered main PS4 render loop");
   while(true){
@@ -1082,6 +1105,11 @@ int main(){
         requestPlayback(settings.diagnostic_type,settings.diagnostic_id);
       }
     }
+    if(frame==14&&!localLoaded){
+      localLoaded=true;
+      readLocalTitles(localSaved);
+      ps4diag::note("LIBRARY","Local-only saved titles="+std::to_string(localSaved.size()));
+    }
     if(frame==2 && !initialSettingsRequested){
       initialSettingsRequested=true;
       requestSettings(false);
@@ -1146,6 +1174,31 @@ int main(){
         sourceChoices=std::move(pendingChoices);
         detailMessage=sourceChoices.error;
         sourcesReady=false;
+      }
+    }
+    {
+      std::lock_guard<std::mutex> lock(browseMutex);
+      if(browseReady){
+        if(pendingBrowse.loaded){
+          ptvcatalog::Catalog matched;matched.loaded=true;
+          if(pendingBrowseFilters.series)matched.tv=std::move(pendingBrowse.titles);
+          else matched.movies=std::move(pendingBrowse.titles);
+          advancedCatalog=std::move(matched);
+          appliedFilters=pendingBrowseFilters;
+          browseActive=true;
+          catalogTv=appliedFilters.series;catalogPage=0;focus=0;
+          browseMessage=advancedCatalog.tv.empty()&&advancedCatalog.movies.empty()?
+            "No matches on this page. Try another page or adjust filters.":"";
+          ps4diag::note("DISCOVER","PASS results="+std::to_string(
+            catalogTv?advancedCatalog.tv.size():advancedCatalog.movies.size())+
+            " page="+std::to_string(appliedFilters.page)+
+            " pages="+std::to_string(std::max(1,pendingBrowse.total_pages)));
+        }else{
+          browseMessage=pendingBrowse.error;
+          parseError=browseMessage;
+          ps4diag::note("DISCOVER","FAIL TMDB filter browse (no key or URLs logged)");
+        }
+        browseReady=false;
       }
     }
     ps4diag::Summary snapshot;
