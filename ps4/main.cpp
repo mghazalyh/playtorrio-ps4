@@ -685,7 +685,21 @@ int main(){
   bool tested=false;
   ps4video::Player player;
   ps4art::Cache posters;
-  int panel=0; // 0 browse, 1 title details/episodes, 2 source picker
+  int panel=0; // 0 browse, 1 details, 2 source picker, 3 advanced, 4 keyboard
+  ptvdiscover::Filters filters,appliedFilters;
+  ptvdiscover::Page pendingBrowse;
+  ptvcatalog::Catalog advancedCatalog;
+  std::atomic<bool> browseBusy{false};
+  std::mutex browseMutex;
+  bool browseReady=false,browseActive=false;
+  std::string browseMessage;
+  int filterFocus=0,keyboardFocus=0;
+  std::vector<ptvcatalog::Item> localSaved;
+  bool localLoaded=false;
+  int savedPage=0;
+  std::vector<ptvcatalog::Item> related;
+  int relatedFocus=0;
+  bool relatedMode=false;
   ptvcatalog::Item selectedItem;
   std::string detailImdb,detailMessage;
   std::vector<ptvdetail::Season> seasons;
@@ -696,6 +710,7 @@ int main(){
     std::string imdb;
     std::vector<ptvdetail::Season> seasons;
     std::vector<ptvdetail::Episode> episodes;
+    std::vector<ptvcatalog::Item> related;
     bool seasonOnly=false;
     std::string error;
   };
@@ -834,8 +849,9 @@ int main(){
   auto openDetails=[&](const ptvcatalog::Item& item){
     if(viewing||detailBusy.exchange(true))return;
     selectedItem=item;detailImdb=item.imdb_id;
-    seasons.clear();episodes.clear();sourceChoices={};
-    seasonFocus=0;episodeFocus=0;sourceFocus=0;panel=1;
+    seasons.clear();episodes.clear();related.clear();sourceChoices={};
+    seasonFocus=0;episodeFocus=0;sourceFocus=0;relatedFocus=0;
+    relatedMode=false;panel=1;
     detailMessage="Loading details...";
     const auto config=settings;
     std::thread([&,item,config](){
@@ -851,6 +867,7 @@ int main(){
                     result.seasons.front().number,result.episodes))
             result.error="Could not load episodes from TMDB";
         }
+        result.related=ptvcatalog::fetch_related(config,item.series,item.tmdb_id);
         if(result.imdb.empty())result.error="IMDb identifier unavailable for source lookup";
       }catch(...){result.error="Unexpected TMDB details error";}
       {std::lock_guard<std::mutex> lock(detailMutex);
@@ -1113,6 +1130,7 @@ int main(){
         if(!pendingDetail.seasonOnly){
           detailImdb=std::move(pendingDetail.imdb);
           seasons=std::move(pendingDetail.seasons);
+          related=std::move(pendingDetail.related);
         }
         episodes=std::move(pendingDetail.episodes);
         episodeFocus=0;
