@@ -464,6 +464,25 @@ int main(){
   ptv::SettingsFileResult pendingSettings;
   bool settingsReady=false;
   bool initialSettingsRequested=false;
+  ptvcatalog::Catalog catalog;
+  ptvcatalog::Catalog pendingCatalog;
+  std::mutex catalogMutex;
+  std::atomic<bool> catalogBusy{false};
+  bool catalogReady=false;
+  bool catalogTv=true;
+  int catalogPage=0;
+  auto requestCatalog=[&](){
+    if(catalogBusy.exchange(true))return;
+    std::thread([&](){
+      auto next=ptvcatalog::load_file("/data/playtorrio/catalog.json");
+      {
+        std::lock_guard<std::mutex> lock(catalogMutex);
+        pendingCatalog=std::move(next);
+        catalogReady=true;
+      }
+      catalogBusy.store(false);
+    }).detach();
+  };
   auto requestSettings=[&](bool allowUsb){
     if(settingsBusy.exchange(true))return;
     ps4diag::note("SETTINGS","BEGIN deferred settings read (no secrets logged)");
@@ -526,6 +545,10 @@ int main(){
         }
         pressed=0;
       }
+      if((pressed&ORBIS_PAD_BUTTON_SQUARE) && tab!=4){
+        requestCatalog();
+        ps4diag::note("CATALOG","User requested shared Windows catalog refresh");
+      }
       if((pressed&ORBIS_PAD_BUTTON_TRIANGLE) && !running.exchange(true)){
         // Keep the TV interface responsive while live HTTPS calls execute.
         // The worker owns a snapshot of settings and publishes the result
@@ -550,7 +573,15 @@ int main(){
         if(pressed&ORBIS_PAD_BUTTON_LEFT)focus=(focus/6)*6+(focus%6+5)%6;
         if(pressed&ORBIS_PAD_BUTTON_DOWN)focus=(focus+6)%12;
         if(pressed&ORBIS_PAD_BUTTON_UP)focus=(focus+6)%12;
-        if(pressed&ORBIS_PAD_BUTTON_CROSS){
+        if(pressed&ORBIS_PAD_BUTTON_CROSS && catalog.loaded){
+          const bool isTv=focus<6;
+          catalogTv=isTv;
+          catalogPage=0;
+          // Selecting a real show opens Discover with that item highlighted.
+          // Playback is initiated from Discover with X.
+          focus=focus%6;
+          tab=1;
+        }else if(pressed&ORBIS_PAD_BUTTON_CROSS){
           if(focus==8){
             if(!running.exchange(true)){
               const auto snapshot=settings;
@@ -571,6 +602,17 @@ int main(){
             focus=0;
           }
         }
+      }else if(tab==1 && catalog.loaded){
+        if(pressed&ORBIS_PAD_BUTTON_RIGHT){catalogTv=false;catalogPage=0;focus=0;}
+        if(pressed&ORBIS_PAD_BUTTON_LEFT){catalogTv=true;catalogPage=0;focus=0;}
+        const auto& collection=catalogTv?catalog.tv:catalog.movies;
+        const int pages=std::max(1,((int)collection.size()+5)/6);
+        if(pressed&ORBIS_PAD_BUTTON_R2){catalogPage=(catalogPage+1)%pages;focus=0;}
+        if(pressed&ORBIS_PAD_BUTTON_L2){catalogPage=(catalogPage+pages-1)%pages;focus=0;}
+        if(pressed&ORBIS_PAD_BUTTON_DOWN)
+          focus=(focus+1)%6;
+        if(pressed&ORBIS_PAD_BUTTON_UP)
+          focus=(focus+5)%6;
       }else{
         if(pressed&(ORBIS_PAD_BUTTON_RIGHT|ORBIS_PAD_BUTTON_DOWN))
           focus=(focus+1)%6;
@@ -584,7 +626,21 @@ int main(){
         parseError="Reloading settings in the background...";
       }
       if(pressed&ORBIS_PAD_BUTTON_CROSS && tab==1 && tabBeforeSelection==1){
-        requestPlayback(focus==1?"series":"movie",settings.diagnostic_id);
+        if(catalog.loaded){
+          const auto& list=catalogTv?catalog.tv:catalog.movies;
+          const int index=catalogPage*6+focus;
+          if(index>=0 && index<(int)list.size()){
+            const auto& item=list[index];
+            if(item.imdb_id.empty()){
+              parseError="IMDb ID not available for this title yet; refresh the Windows catalog.";
+              ps4diag::note("CATALOG","SKIP title playback: IMDb ID unavailable");
+            }else{
+              // Stremio's TV stream endpoint requires an episode ID.
+              const auto mediaId=item.series?item.imdb_id+":1:1":item.imdb_id;
+              requestPlayback(item.series?"series":"movie",mediaId);
+            }
+          }
+        }else requestPlayback(settings.diagnostic_type,settings.diagnostic_id);
       }
       if(pressed&ORBIS_PAD_BUTTON_CROSS && tab==2 && tabBeforeSelection==2){
         std::string type="movie",id;
@@ -604,6 +660,25 @@ int main(){
     if(frame==2 && !initialSettingsRequested){
       initialSettingsRequested=true;
       requestSettings(false);
+    }
+    // Windows companion updater writes atomically. Reload without blocking
+    // frame presentation and without reloading the user's secret settings.
+    if(frame==10 || (frame>10 && frame%360==10))requestCatalog();
+    {
+      std::lock_guard<std::mutex> guard(catalogMutex);
+      if(catalogReady){
+        if(pendingCatalog.loaded){
+          if(!catalog.loaded || catalog.updated!=pendingCatalog.updated){
+            ps4diag::note("CATALOG","PASS local TMDB TV="+
+              std::to_string(pendingCatalog.tv.size())+" movies="+
+              std::to_string(pendingCatalog.movies.size()));
+          }
+          catalog=std::move(pendingCatalog);
+        }else if(!catalog.loaded){
+          catalog.error=pendingCatalog.error;
+        }
+        catalogReady=false;
+      }
     }
     {
       std::lock_guard<std::mutex> lock(settingsMutex);
