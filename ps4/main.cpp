@@ -66,18 +66,14 @@ void txt(Scene2D& s,const Fonts& f,const std::string& str,int x,int baseline,
   s.DrawText(const_cast<char*>(str.c_str()),font,x,baseline,bg,fg);
 }
 void stripe(Scene2D& s){
+  // 720p safe-area hero: only 168px tall, leaving room for 16 tiles.
   for(int x=0;x<1280;x+=8){
     float t=(float)x/1280.f;
-    C c=lerp({16,17,28},{35,21,62},t);
-    rect(s,x,91,8,306,c);
+    rect(s,x,76,8,174,lerp({18,20,34},{38,26,66},t));
   }
-  // Decorative lights stay behind content. Keep contrast on the text half.
-  circle(s,1040,250,190,{38,28,73});
-  circle(s,1040,250,149,{58,38,98});
-  circle(s,1040,250,103,{90,54,138});
-  circle(s,1040,250,60,{120,72,186});
-  circle(s,1040,250,26,{165,103,225});
-  round(s,885,370,300,8,4,{91,53,153});
+  circle(s,1053,163,88,{55,38,89});
+  circle(s,1053,163,65,{75,51,116});
+  circle(s,1053,163,39,{109,70,151});
 }
 void statusPill(Scene2D& s,const Fonts& font,bool connected,int x,int y,
                 const std::string& title){
@@ -86,99 +82,120 @@ void statusPill(Scene2D& s,const Fonts& font,bool connected,int x,int y,
   txt(s,font,title,x+31,y+23,connected?green:gold,1);
 }
 void nav(Scene2D& s,const Fonts& fonts,int tab){
-  txt(s,fonts,"PlayTorrio",55,59,paper,4);
-  circle(s,35,45,10,purple);
-  rect(s,31,41,8,8,{255,255,255});
-  const int xpos[]={455,553,679,789,910};
+  rect(s,0,0,1280,74,{13,16,26});
+  txt(s,fonts,"PlayTorrio",48,49,paper,3);
+  circle(s,31,38,7,purple);
+  const int xpos[]={500,584,696,798,896};
   for(int i=0;i<5;i++){
-    txt(s,fonts,labels[i],xpos[i],56,tab==i?paper:muted,2);
-    if(tab==i)round(s,xpos[i],75,45,3,2,purple);
+    txt(s,fonts,labels[i],xpos[i],45,tab==i?paper:muted,1);
+    if(tab==i)round(s,xpos[i],63,34,2,1,purple);
   }
-  round(s,1128,24,112,35,17,{43,37,59});
-  txt(s,fonts,"PS4 BETA",1144,47,{201,174,255},1);
+  round(s,1133,20,101,30,13,{37,32,52});
+  txt(s,fonts,"PS4 PREVIEW",1146,41,{201,174,255},0);
 }
 void heading(Scene2D& s,const Fonts& f,const std::string& title,
              const std::string& subtitle){
-  txt(s,f,title,58,171,paper,5);
-  txt(s,f,subtitle,59,211,muted,2);
+  txt(s,f,title,51,123,paper,4);
+  txt(s,f,subtitle,52,155,muted,1);
 }
 void featureCard(Scene2D& s,const Fonts& f,int x,int y,int index,bool selected){
-  const int w=218,h=164;
-  const C colors[]={ {52,34,90},{30,73,94},{75,45,68},{53,46,94},{48,61,78} };
-  round(s,x,y,w,h,15,selected?purple:line);
-  round(s,x+3,y+3,w-6,h-6,13,colors[index]);
-  circle(s,x+161,y+47,60,lerp(colors[index],purple,.27f));
-  circle(s,x+186,y+26,27,lerp(colors[index],paper,.16f));
-  round(s,x+20,y+20,68,24,12,{27,25,40});
-  txt(s,f,index==0?"FILMS":index==1?"SHOWS":index==2?"CLOUD":
-       index==3?"TOOLS":"SYSTEM",x+29,y+37,{217,204,254},0);
-  txt(s,f,cards[index],x+20,y+107,paper,3);
-  txt(s,f,captions[index],x+20,y+134,{204,204,221},1);
-  if(selected)round(s,x+20,y+148,w-40,3,1,{230,208,255});
+  constexpr int w=132;
+  constexpr int h=137;
+  const char* names[]={"Movies","Series","My List","Addons","TorBox","Settings","Search","History",
+                       "Library","Manifests","Keys","USB import","Streams","Audio","Subtitles","Player"};
+  const char* tags[]={"BROWSE","EPISODES","CLOUD","STREMIO","DEBRID","CONFIG","FIND","ACTIVITY",
+                      "JSON V1","SOURCES","PRIVATE","SETUP","PARSERS","ENGLISH","ENGLISH","PREVIEW"};
+  const C hues[]={{51,35,82},{30,66,84},{72,42,75},{46,47,84},
+                  {27,76,70},{66,45,69},{49,52,91},{49,56,70}};
+  C hue=hues[index%8];
+  round(s,x,y,w,h,10,selected?purple:line);
+  round(s,x+2,y+2,w-4,h-4,9,lerp(hue,bg,.25f));
+  round(s,x+11,y+11,67,19,8,{33,29,48});
+  txt(s,f,tags[index],x+16,y+26,{207,192,239},0);
+  circle(s,x+95,y+51,23,lerp(hue,purple,.26f));
+  circle(s,x+95,y+51,12,lerp(hue,paper,.16f));
+  txt(s,f,names[index],x+11,y+103,paper,1);
+  if(index>=8)
+    txt(s,f,index==8?"Same format":index==9?"Saved URLs":index==10?"On console":
+            index==11?"From USB":index==12?"No network":index==13?"Planned":
+            index==14?"Planned":"Not ready",x+11,y+122,muted,0);
+  else txt(s,f,"Open section",x+11,y+122,muted,0);
+  if(selected)round(s,x+11,y+h-4,w-22,2,1,{236,206,255});
 }
 void home(Scene2D& s,const Fonts& f,int cardFocus){
   stripe(s);
-  round(s,58,132,185,32,16,{63,48,92});
-  circle(s,77,148,5,gold);
-  txt(s,f,"NATIVE PS4 PREVIEW",90,155,{228,213,255},0);
-  txt(s,f,"Your stories.",57,239,paper,5);
-  txt(s,f,"On the big screen.",57,303,paper,5);
-  txt(s,f,"A new PlayTorrio experience is taking shape.",59,348,muted,2);
-  round(s,58,370,209,40,12,purple);
-  txt(s,f,"Browse categories",78,397,{13,11,24},2);
-  txt(s,f,"DISCOVER",58,462,paper,3);
-  txt(s,f,"Early preview | Feature work continues",785,456,muted,1);
-  for(int i=0;i<5;i++)featureCard(s,f,58+i*243,483,i,i==cardFocus);
+  round(s,54,93,128,22,10,{64,49,99});
+  txt(s,f,"EARLY PREVIEW",66,109,{228,213,255},0);
+  txt(s,f,"PlayTorrio for PS4",52,166,paper,5);
+  txt(s,f,"Browse your sections with the controller.",54,206,muted,1);
+  round(s,903,191,243,27,12,{55,40,83});
+  txt(s,f,"STREAMING STILL IN DEVELOPMENT",915,210,{229,210,255},0);
+  txt(s,f,"EXPLORE",52,285,paper,2);
+  txt(s,f,"8 sections per row",1034,284,muted,0);
+  for(int i=0;i<8;i++)featureCard(s,f,52+i*148,301,i,i==cardFocus);
+  txt(s,f,"YOUR PLAYTORRIO",52,479,paper,2);
+  txt(s,f,"Local setup and feature status",917,478,muted,0);
+  for(int i=0;i<8;i++)featureCard(s,f,52+i*148,494,i+8,i+8==cardFocus);
 }
 void infoBox(Scene2D& s,const Fonts& f,int y,const std::string& name,
              const std::string& description,const std::string& info,
              bool highlighted=false){
-  round(s,57,y,1167,86,15,highlighted?C{40,36,65}:card);
-  if(highlighted)round(s,57,y,5,86,2,purple);
-  txt(s,f,name,83,y+35,paper,3);
-  txt(s,f,description,84,y+65,muted,1);
-  if(!info.empty())txt(s,f,cut(info,28),925,y+49,highlighted?green:muted,1);
+  constexpr int h=66;
+  round(s,51,y,1176,h,10,highlighted?C{42,36,70}:card);
+  if(highlighted)round(s,51,y,4,h,2,purple);
+  txt(s,f,cut(name,47),72,y+27,paper,2);
+  txt(s,f,cut(description,95),73,y+51,muted,1);
+  if(!info.empty())
+    txt(s,f,cut(info,23),1010,y+37,highlighted?green:muted,0);
 }
 void section(Scene2D& s,const Fonts& f,int tab,const ptv::Settings& cfg,
              bool loaded,int selection,const std::string& error){
+  // Six complete, compact rows on a 720p television (was three).
+  const int rows[]={173,255,337,419,501,583};
   if(tab==1){
-    heading(s,f,"Discover","Find movies and series from your installed catalog providers.");
-    infoBox(s,f,252,"Movies","TMDB-powered collections and featured titles","Integration pending",selection==0);
-    infoBox(s,f,352,"Series","Seasons, episodes and next episode actions","Integration pending",selection==1);
-    infoBox(s,f,452,"Sources","Stremio manifest and stream parsers available","Network pending",selection==2);
+    heading(s,f,"Discover","Catalog and playback integration status");
+    infoBox(s,f,rows[0],"Movies","TMDB movie collections","Coming soon",selection==0);
+    infoBox(s,f,rows[1],"Series","Season and episode browsing","Coming soon",selection==1);
+    infoBox(s,f,rows[2],"Sources","Stremio stream parsing","Parser ready",selection==2);
+    infoBox(s,f,rows[3],"Search","Search across films and shows","Coming soon",selection==3);
+    infoBox(s,f,rows[4],"English audio and subtitles","Language-first playback preferences","Coming soon",selection==4);
+    infoBox(s,f,rows[5],"Next episode","Continuous series playback","Coming soon",selection==5);
   }else if(tab==2){
-    heading(s,f,"My List","One library across your Windows, iPad and PS4.");
-    infoBox(s,f,252,"Your private database","Settings refer to the same torriodb JSON schema",
-            cut(cfg.github_repo,23),selection==0);
-    infoBox(s,f,352,"GitHub access",cfg.github_token.empty()?
-            "No key imported on this PS4":"Local key imported; never displayed on screen",
-            cfg.github_token.empty()?"Not configured":"Key imported",selection==1);
-    infoBox(s,f,452,"Device synchronization",
-            "The live GitHub HTTP adapter is not implemented yet",
-            "Not connected",selection==2);
+    heading(s,f,"My List","Your shared private GitHub watchlist");
+    infoBox(s,f,rows[0],"Repository","GitHub data source",cut(cfg.github_repo,23),selection==0);
+    infoBox(s,f,rows[1],"Database","playtorrio/watchlist-v1.json","Schema ready",selection==1);
+    infoBox(s,f,rows[2],"Authentication",cfg.github_token.empty()?
+            "Key not imported":"GitHub key stored in local settings",
+            cfg.github_token.empty()?"Missing":"Imported",selection==2);
+    infoBox(s,f,rows[3],"Offline changes","Pending additions and removals","Coming soon",selection==3);
+    infoBox(s,f,rows[4],"Device synchronization","Live GitHub HTTP adapter","Not connected",selection==4);
+    infoBox(s,f,rows[5],"Shared history","Playback progress sync","Not available",selection==5);
   }else if(tab==3){
-    heading(s,f,"Addons","Import your Stremio sources by their manifest.json URLs.");
-    infoBox(s,f,252,"Installed manifests","Read securely from your local settings file",
-            std::to_string(cfg.addons.size())+" configured",selection==0);
-    for(int i=0;i<2;i++){
+    heading(s,f,"Addons","Your saved Stremio manifest.json sources");
+    infoBox(s,f,rows[0],"Installed manifests",
+            "Stored locally in settings.json",std::to_string(cfg.addons.size())+" saved",selection==0);
+    for(int i=0;i<5;i++){
       bool present=i<(int)cfg.addons.size();
-      std::string label=present?cut(cfg.addons[i],65):"No addon in this slot";
-      infoBox(s,f,352+i*100,"Addon "+std::to_string(i+1),
-              label,present?"Imported":"Empty",selection==i+1);
+      const std::string title="Addon "+std::to_string(i+1);
+      const std::string subtitle=present?cut(cfg.addons[i],91):"No manifest configured";
+      infoBox(s,f,rows[i+1],title,subtitle,present?"Imported":"Empty",selection==i+1);
     }
   }else{
-    heading(s,f,"Settings","Your configuration stays on your console.");
-    infoBox(s,f,252,"Import settings",
-            "Square: import JSON from USB drive",
-            loaded?"Imported":"Not found",selection==0);
-    infoBox(s,f,352,"TorBox",
-            cfg.torbox_api_key.empty()?"Add a token to your local JSON file":
-                "TorBox key imported without exposing its value",
-            cfg.torbox_api_key.empty()?"Missing key":"Key imported",selection==1);
-    infoBox(s,f,452,"GitHub library",
-            "Repository: "+cut(cfg.github_repo,44),
-            cfg.github_token.empty()?"Missing key":"Key imported",selection==2);
-    if(!error.empty())txt(s,f,cut(error,82),83,595,gold,1);
+    heading(s,f,"Settings","Your account and device preferences");
+    infoBox(s,f,rows[0],"Import settings","X or Square loads JSON from USB0 or USB1",
+            loaded?"Imported":"Not loaded",selection==0);
+    infoBox(s,f,rows[1],"TorBox API key","Stored locally and never displayed",
+            cfg.torbox_api_key.empty()?"Missing":"Imported",selection==1);
+    infoBox(s,f,rows[2],"Private GitHub key","Your torriodb access token remains on PS4",
+            cfg.github_token.empty()?"Missing":"Imported",selection==2);
+    infoBox(s,f,rows[3],"Addon manifests","Configured Stremio URL list",
+            std::to_string(cfg.addons.size())+" configured",selection==3);
+    infoBox(s,f,rows[4],"English subtitles","Automatically prefer English when playback works",
+            cfg.subtitles_english?"Preferred":"Disabled",selection==4);
+    infoBox(s,f,rows[5],"English audio","Automatically prefer labeled English tracks",
+            cfg.audio_english?"Preferred":"Disabled",selection==5);
+    if(!error.empty())
+      txt(s,f,cut(error,86),72,665,gold,0);
   }
 }
 std::string readConfig(){
@@ -233,16 +250,18 @@ bool importUsb(ptv::Settings& settings,std::string& message){
   return false;
 }
 void footer(Scene2D& s,const Fonts& f,int tab,int focus){
-  rect(s,0,681,1280,39,{16,19,28});
-  circle(s,68,701,9,{61,158,117});
-  txt(s,f,"X",62,706,paper,0);
-  txt(s,f,tab==0?"Open selected section":"Select",89,708,muted,1);
-  circle(s,291,701,9,{161,102,109});
-  txt(s,f,"O",286,706,paper,0);
-  txt(s,f,"Back",311,708,muted,1);
-  txt(s,f,"L1 / R1  Switch tabs",472,708,muted,1);
-  if(tab==4)txt(s,f,"Square  Import USB",838,708,muted,1);
+  rect(s,0,684,1280,36,{16,19,28});
+  circle(s,60,702,8,{61,158,117});
+  txt(s,f,"X",55,706,paper,0);
+  txt(s,f,tab==0?"Open section":"Select",79,707,muted,0);
+  circle(s,231,702,8,{161,102,109});
+  txt(s,f,"O",227,706,paper,0);
+  txt(s,f,"Back",251,707,muted,0);
+  txt(s,f,"L1 / R1   Tabs",387,707,muted,0);
+  txt(s,f,"D-Pad   Navigate",594,707,muted,0);
+  if(tab==4)txt(s,f,"Square   Import USB",906,707,muted,0);
 }
+
 }
 
 int main(){
@@ -277,11 +296,23 @@ int main(){
       previous=data.buttons;
       if(pressed&ORBIS_PAD_BUTTON_R1){tab=(tab+1)%5;focus=0;}
       if(pressed&ORBIS_PAD_BUTTON_L1){tab=(tab+4)%5;focus=0;}
-      if(pressed&ORBIS_PAD_BUTTON_RIGHT)focus=(focus+1)%(tab==0?5:3);
-      if(pressed&ORBIS_PAD_BUTTON_LEFT)focus=(focus+(tab==0?4:2))%(tab==0?5:3);
-      if(pressed&ORBIS_PAD_BUTTON_DOWN)focus=(focus+1)%(tab==0?5:3);
-      if(pressed&ORBIS_PAD_BUTTON_UP)focus=(focus+(tab==0?4:2))%(tab==0?5:3);
-      if(pressed&ORBIS_PAD_BUTTON_CROSS&&tab==0){tab=std::min(focus+1,4);focus=0;}
+      if(tab==0){
+        if(pressed&ORBIS_PAD_BUTTON_RIGHT)focus=(focus/8)*8+(focus%8+1)%8;
+        if(pressed&ORBIS_PAD_BUTTON_LEFT)focus=(focus/8)*8+(focus%8+7)%8;
+        if(pressed&ORBIS_PAD_BUTTON_DOWN)focus=(focus+8)%16;
+        if(pressed&ORBIS_PAD_BUTTON_UP)focus=(focus+8)%16;
+        if(pressed&ORBIS_PAD_BUTTON_CROSS){
+          const int destinations[]={1,1,2,3,4,4,1,2,2,3,4,4,1,1,4,1};
+          const int option=focus;
+          tab=destinations[option];
+          focus=(option==4||option==10)?1:0;
+        }
+      }else{
+        if(pressed&(ORBIS_PAD_BUTTON_RIGHT|ORBIS_PAD_BUTTON_DOWN))
+          focus=(focus+1)%6;
+        if(pressed&(ORBIS_PAD_BUTTON_LEFT|ORBIS_PAD_BUTTON_UP))
+          focus=(focus+5)%6;
+      }
       if(pressed&ORBIS_PAD_BUTTON_CIRCLE){tab=0;focus=0;}
       if((pressed&ORBIS_PAD_BUTTON_SQUARE && tab==4)||
          (pressed&ORBIS_PAD_BUTTON_CROSS && tab==4 && focus==0)){
