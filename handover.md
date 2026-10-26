@@ -8,15 +8,15 @@
 **GitHub repository:** https://github.com/mghazalyh/playtorrio-ps4  
 **Default branch:** main, public.  
 **Latest implemented feature commit before these handover files:** a887b6c710373c5c374b6eba6d3e9b9e8c594526 (codec-aware source preference, v1.3.3).  
-**Last tested published build:** ps4-native-playback-1.3.3, https://github.com/mghazalyh/playtorrio-ps4/releases/tag/ps4-native-playback-1.3.3  
+**Latest candidate build:** ps4-native-playback-1.3.4 (CI/release requires verification before claiming PASS); latest user-tested release: v1.3.3. Previous successful feature CI: https://github.com/mghazalyh/playtorrio-ps4/actions/runs/40375602957.  
 **CI run:** https://github.com/mghazalyh/playtorrio-ps4/actions/runs/40375602957 — completed successfully: portable C++ tests, OpenOrbis cross-compilation, experimental PS4 package and emulator ZIP validation.  
-**User's most recent actual emulator playback test:** **v1.3.1**, not v1.3.3. It resolved a video, verified the 2.43 GB media file supported HEAD and HTTP 206 Range, and AvPlayer accepted the source, but **no video appeared**; screen displayed “Buffering stream…” (see Section 7).  
-**Current primary blocker:** **first decoded/rendered video frame has NOT been demonstrated**. Audio and subtitle playback remain unverified/unimplemented to final quality. **v1.3.3 has not yet been verified on the user's shadPS4.**  
-**Top next step:** test v1.3.3 playback and inspect new **VIDEO_IO**/**PLAYBACK** log lines (callback invocation, read count, range chunk count, 60-second stall or first frame). Diagnose the exact decoder/pipeline stage, do not restart TMDB/networking investigation.
+**User's most recent actual emulator playback test:** **v1.3.3**. The first show fetched a 318,800,024-byte media source, then HTTP 429 after 99 additional small Range requests and showed 0 frames. The second show loaded a 2,030,476,793-byte source and **rendered 97 decoded frames** but displayed only brief flashes of a logo; AudioOut initialization was skipped on -2144993266. See new Stage I below.  
+**Current primary blocker:** **First decoded frames are now CONFIRMED in shadPS4** (97 frames in the second v1.3.3 show), but smooth sustained video and audible audio are NOT verified. The first show was throttled (HTTP 429). The v1.3.4 framebuffer/audio/range changes remain to be tested on emulator and physical PS4.  
+**Top next step:** verify v1.3.4 CI and both release assets, then user-test one or two authorized streams in shadPS4 and capture VIDEO_PROGRESS frames/time, VIDEO_IO HTTP range errors and AUDIO port/output messages. Observe continuous image quality and whether audio is audible.
 
 **Verified in emulator:** native HTTP(S) requests, TMDB trending JSON, Stremio manifest, TorBox authenticated APIs, real catalog, Stremio source resolution, and range-compatible media access.  
 **Verified in CI:** C++ regression tests, PS4 package format, extracted emulator game ZIP content.  
-**Not verified:** decoded video frame, continuous playback, synchronized audible sound, rendered subtitles, 1080p performance, **any tests on a physical PS4**, and actual end-user playable final release.
+**Not verified:** smooth/continuous video playback, synchronized audible sound, rendered subtitles, 1080p performance, **any tests on a physical PS4**, and an end-user playable final release. **Confirmed in v1.3.3 emulator:** one stream decoded 97 frames while only a brief logo flashed.
 
 **User directive:** Physical PS4 (GoldHEN, target firmware 10.01) is the product target. shadPS4 is the test/development environment. Share common core functionality, isolate emulator quirks, preserve a real-hardware-compatible video architecture. **Do not turn HostTools or other Windows helpers into a permanent console dependency.**  
 **GitHub watchlist rule:** githubSyncEnabled must remain **false** and GitHub watchlist read/write disabled until the user requests otherwise.
