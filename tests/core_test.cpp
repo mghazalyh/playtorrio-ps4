@@ -10,6 +10,16 @@ int main() {
   assert(!normalize_manifest_url("https://alice:pass@example.com/manifest.json",url));
   Settings s;
   assert(import_settings(R"({"addons":[{"manifestUrl":"https://torrentio.example/abcd/manifest.json"},"stremio://other.example/manifest.json"],"githubRepo":"mghazalyh/torriodb","githubBranch":"main","torboxApiKey":"example"})",s,err));
+  assert(!s.github_sync_enabled);
+  assert(s.tmdb_api_key.empty());
+  Settings local;
+  assert(import_settings(R"({"addons":["https://addon.example/custom/manifest.json"],"tmdbApiKey":"example-tmdb-key","githubSyncEnabled":false})",local,err));
+  assert(local.addons.size()==1);
+  assert(local.tmdb_api_key=="example-tmdb-key");
+  assert(!local.github_sync_enabled);
+  Settings enabled;
+  assert(import_settings(R"({"githubSyncEnabled":true})",enabled,err));
+  assert(enabled.github_sync_enabled);
   assert(s.addons.size()==2);
   assert(s.github_repo=="mghazalyh/torriodb");
   assert(stream_url(s.addons[0],"series","tt456:1:2")=="https://torrentio.example/abcd/stream/series/tt456%3A1%3A2.json");
