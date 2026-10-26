@@ -66,6 +66,26 @@ std::string imdb_for_tmdb(const ptv::Settings& cfg,bool series,int tmdbId){
      [](unsigned char c){return c>='0'&&c<='9';}))return {};
   return imdb;
 }
+std::vector<Item> fetch_related(const ptv::Settings& cfg,bool series,int tmdbId){
+  std::vector<Item> results;
+  if(tmdbId<=0||cfg.tmdb_api_key.empty())return results;
+  const std::string path=std::string(series?"/tv/":"/movie/")+std::to_string(tmdbId);
+  for(const std::string kind:{"recommendations","similar"}){
+    const auto res=api(cfg,path+"/"+kind+"?page=1");
+    if(res.platform_error||res.truncated||res.status!=200)continue;
+    std::vector<Item> from;
+    std::string error;
+    if(!parse_tmdb_results(res.body,series,from,error))continue;
+    for(auto& item:from){
+      if(item.tmdb_id==tmdbId)continue;
+      if(std::none_of(results.begin(),results.end(),[&](const Item& old){return old.tmdb_id==item.tmdb_id;}))
+        results.push_back(std::move(item));
+      if(results.size()>=12)return results;
+    }
+    if(results.size()>=6)break;
+  }
+  return results;
+}
 Catalog fetch_online(const ptv::Settings& cfg){
   Catalog catalog;
   if(cfg.tmdb_api_key.empty()){catalog.error="No TMDB API key";return catalog;}

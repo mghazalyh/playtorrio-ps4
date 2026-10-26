@@ -4,6 +4,8 @@
 #include "../src/core.hpp"
 namespace ptvcatalog {
 Catalog fetch_online(const ptv::Settings& settings);
+// Real TMDB recommendation/similar items; no invented relevance percentages.
+std::vector<Item> fetch_related(const ptv::Settings&,bool series,int tmdbId);
 // Fetch IMDb ID only when the user selects a title outside the initial page.
 std::string imdb_for_tmdb(const ptv::Settings& settings,bool series,int tmdbId);
 }
