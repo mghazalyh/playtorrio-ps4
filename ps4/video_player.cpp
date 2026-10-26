@@ -325,8 +325,11 @@ bool Player::render(Scene2D& scene){
       int g=(298*Y-100*U-208*V+128)>>8;
       int b=(298*Y+516*U+128)>>8;
       auto clamp=[](int c)->uint8_t{return (uint8_t)std::max(0,std::min(255,c));};
-      scene.DrawRectangle(left+col,top+row,2,2,
-         Color{clamp(r),clamp(g),clamp(b)});
+      const uint32_t pixel=0x80000000u |
+           ((uint32_t)clamp(r)<<16)|((uint32_t)clamp(g)<<8)|clamp(b);
+      const size_t at=(size_t)row*outW+col;
+      rgbPixels_[at]=pixel;rgbPixels_[at+1]=pixel;
+      rgbPixels_[at+outW]=pixel;rgbPixels_[at+outW+1]=pixel;
     }
   }
   ++frames_;
