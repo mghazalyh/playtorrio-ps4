@@ -640,6 +640,8 @@ void footer(Scene2D& s,const Fonts& f,int tab,int focus){
   txt(s,f,"D-Pad   Navigate",594,707,muted,0);
   txt(s,f,"Triangle   Test all",798,707,muted,0);
   if(tab==4)txt(s,f,"Square Reload",1105,707,muted,0);
+  if(tab==1)txt(s,f,"Square Filters",1093,707,muted,0);
+  if(tab==2)txt(s,f,"Square Remove",1093,707,muted,0);
 }
 
 }
@@ -692,6 +694,7 @@ int main(){
   std::atomic<bool> browseBusy{false};
   std::mutex browseMutex;
   bool browseReady=false,browseActive=false;
+  int browseTotalPages=1;
   std::string browseMessage;
   int filterFocus=0,keyboardFocus=0;
   std::vector<ptvcatalog::Item> localSaved;
@@ -933,7 +936,7 @@ int main(){
   ptvdiscover::Filters pendingBrowseFilters;
   auto requestAdvanced=[&](int pageNumber){
     if(browseBusy.exchange(true))return;
-    ptvdiscover::Filters request=filters;
+    ptvdiscover::Filters request=browseActive&&pageNumber!=1?appliedFilters:filters;
     request.page=pageNumber;
     if(!ptvdiscover::valid(request)){
       browseMessage="Invalid year range or filter settings";
@@ -1085,7 +1088,7 @@ int main(){
         filters.series=catalogTv;filterFocus=0;panel=3;
         pressed=0;
       }
-      if((pressed&ORBIS_PAD_BUTTON_SQUARE) && tab!=4){
+      if((pressed&ORBIS_PAD_BUTTON_SQUARE) && tab==0){
         requestCatalog();
         requestNative(settings);
         ps4diag::note("CATALOG","User requested native and cached TMDB refresh");
@@ -1140,16 +1143,38 @@ int main(){
           }
         }
       }else if(tab==1 && catalog.loaded){
-        if(pressed&ORBIS_PAD_BUTTON_RIGHT){catalogTv=false;catalogPage=0;focus=0;}
-        if(pressed&ORBIS_PAD_BUTTON_LEFT){catalogTv=true;catalogPage=0;focus=0;}
-        const auto& collection=catalogTv?catalog.tv:catalog.movies;
+        if(pressed&ORBIS_PAD_BUTTON_RIGHT){catalogTv=false;catalogPage=0;focus=0;browseActive=false;}
+        if(pressed&ORBIS_PAD_BUTTON_LEFT){catalogTv=true;catalogPage=0;focus=0;browseActive=false;}
+        const auto& selectedCatalog=browseActive?advancedCatalog:catalog;
+        const auto& collection=catalogTv?selectedCatalog.tv:selectedCatalog.movies;
         const int pages=std::max(1,((int)collection.size()+5)/6);
-        if(pressed&ORBIS_PAD_BUTTON_R2){catalogPage=(catalogPage+1)%pages;focus=0;}
-        if(pressed&ORBIS_PAD_BUTTON_L2){catalogPage=(catalogPage+pages-1)%pages;focus=0;}
-        if(pressed&ORBIS_PAD_BUTTON_DOWN)
-          focus=(focus+1)%6;
-        if(pressed&ORBIS_PAD_BUTTON_UP)
-          focus=(focus+5)%6;
+        if(pressed&ORBIS_PAD_BUTTON_R2){
+          if(catalogPage+1<pages){catalogPage++;focus=0;}
+          else if(browseActive&&appliedFilters.page<browseTotalPages&&!browseBusy.load())
+            requestAdvanced(appliedFilters.page+1);
+          else if(!browseActive){catalogPage=0;focus=0;}
+        }
+        if(pressed&ORBIS_PAD_BUTTON_L2){
+          if(catalogPage>0){catalogPage--;focus=0;}
+          else if(browseActive&&appliedFilters.page>1&&!browseBusy.load())
+            requestAdvanced(appliedFilters.page-1);
+          else if(!browseActive){catalogPage=pages-1;focus=0;}
+        }
+        if(pressed&ORBIS_PAD_BUTTON_DOWN)focus=(focus+1)%6;
+        if(pressed&ORBIS_PAD_BUTTON_UP)focus=(focus+5)%6;
+      }else if(tab==2&&!settings.github_sync_enabled){
+        const int pages=std::max(1,((int)localSaved.size()+5)/6);
+        if(pressed&ORBIS_PAD_BUTTON_R2){savedPage=(savedPage+1)%pages;focus=0;}
+        if(pressed&ORBIS_PAD_BUTTON_L2){savedPage=(savedPage+pages-1)%pages;focus=0;}
+        if(pressed&ORBIS_PAD_BUTTON_DOWN)focus=(focus+1)%6;
+        if(pressed&ORBIS_PAD_BUTTON_UP)focus=(focus+5)%6;
+        if(pressed&ORBIS_PAD_BUTTON_SQUARE){
+          const int index=savedPage*6+focus;
+          if(index<(int)localSaved.size()){
+            localSaved.erase(localSaved.begin()+index);
+            if(writeLocalTitles(localSaved))ps4diag::note("LIBRARY","Local saved title deleted");
+          }
+        }
       }else{
         if(pressed&(ORBIS_PAD_BUTTON_RIGHT|ORBIS_PAD_BUTTON_DOWN))
           focus=(focus+1)%6;
@@ -1164,7 +1189,8 @@ int main(){
       }
       if(pressed&ORBIS_PAD_BUTTON_CROSS && tab==1 && tabBeforeSelection==1){
         if(catalog.loaded){
-          const auto& list=catalogTv?catalog.tv:catalog.movies;
+          const auto& shownCatalog=browseActive?advancedCatalog:catalog;
+          const auto& list=catalogTv?shownCatalog.tv:shownCatalog.movies;
           const int index=catalogPage*6+focus;
           if(index>=0 && index<(int)list.size()){
             const auto& item=list[index];
@@ -1173,15 +1199,17 @@ int main(){
         }else requestPlayback(settings.diagnostic_type,settings.diagnostic_id);
       }
       if(pressed&ORBIS_PAD_BUTTON_CROSS && tab==2 && tabBeforeSelection==2){
-        std::string type="movie",id;
-        {
-          std::lock_guard<std::mutex> guard(diagnosticMutex);
-          if(focus>=1 && focus-1<(int)diagnostic.preview_ids.size()){
-            id=diagnostic.preview_ids[focus-1];
-            type=diagnostic.preview_types[focus-1];
-          }
+        if(!settings.github_sync_enabled){
+          const int index=savedPage*6+focus;
+          if(index>=0&&index<(int)localSaved.size())openDetails(localSaved[index]);
+        }else{
+          std::string type="movie",id;
+          {std::lock_guard<std::mutex> guard(diagnosticMutex);
+           if(focus>=1&&focus-1<(int)diagnostic.preview_ids.size()){
+             id=diagnostic.preview_ids[focus-1];
+             type=diagnostic.preview_types[focus-1];}}
+          requestPlayback(type,id);
         }
-        requestPlayback(type,id);
       }
       if(pressed&ORBIS_PAD_BUTTON_CROSS && tab==3 && tabBeforeSelection==3){
         requestPlayback(settings.diagnostic_type,settings.diagnostic_id);
@@ -1267,6 +1295,7 @@ int main(){
           else matched.movies=std::move(pendingBrowse.titles);
           advancedCatalog=std::move(matched);
           appliedFilters=pendingBrowseFilters;
+          browseTotalPages=pendingBrowse.total_pages;
           browseActive=true;
           catalogTv=appliedFilters.series;catalogPage=0;focus=0;
           browseMessage=advancedCatalog.tv.empty()&&advancedCatalog.movies.empty()?
@@ -1340,14 +1369,24 @@ int main(){
       screen->FrameBufferFill(bg);
       if(panel==1){
         detailsPage(*screen,fonts,posters,selectedItem,seasons,episodes,seasonFocus,
-                    episodeFocus,episodeFocus/6,detailBusy.load(),detailMessage);
+                    episodeFocus,episodeFocus/6,detailBusy.load(),detailMessage,
+                    related,relatedMode,relatedFocus,ptvlocal::includes(localSaved,selectedItem));
       }else if(panel==2){
         sourcePage(*screen,fonts,selectedItem,sourceChoices,sourceFocus,sourceFocus/7,
                    sourcesBusy.load()||sourceBusy.load(),detailMessage);
+      }else if(panel==3){
+        discoverFiltersPage(*screen,fonts,filters,filterFocus,browseBusy.load(),browseMessage);
+      }else if(panel==4){
+        filterKeyboard(*screen,fonts,filters.title,keyboardFocus);
       }else{
         if(tab==0)home(*screen,fonts,posters,focus,snapshot,catalog);
         else section(*screen,fonts,tab,settings,imported,focus,parseError,snapshot,
-                     catalog,catalogTv,catalogPage,posters);
+                    browseActive&&tab==1?advancedCatalog:catalog,catalogTv,
+                    catalogPage,posters,localSaved,savedPage,browseActive);
+        if(tab==1&&browseBusy.load())
+          txt(*screen,fonts,"Updating advanced TMDB results...",590,670,gold,0);
+        else if(tab==1&&browseActive&&!browseMessage.empty())
+          txt(*screen,fonts,cut(browseMessage,70),590,670,gold,0);
       }
       nav(*screen,fonts,tab);
       if(!panel){
