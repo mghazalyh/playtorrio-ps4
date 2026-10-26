@@ -8,6 +8,7 @@
 #include <sstream>
 #include <sys/stat.h>
 #include <map>
+#include <cstdint>
 
 namespace ps4diag {
 static FILE* output=nullptr;
@@ -63,12 +64,27 @@ static std::map<std::string,std::string> apiHeaders(const std::string& token){
 static bool good(const ps4net::Response& r) {
   return (r.status>=200 && r.status<300) && !r.truncated && !r.platform_error;
 }
+// Identical HTML fingerprints across unrelated API hosts can reveal an
+// unintended shadPS4 wildcard host override or shared reverse proxy.
+// Only fixed-size fingerprints are emitted; never log response bodies.
+static std::string fingerprint(const ps4net::Response& r) {
+  if(r.body.empty()||r.status<400||r.status>=600)return "na";
+  uint64_t hash=14695981039346656037ULL;
+  for(unsigned char byte:r.body){
+    hash^=byte;
+    hash*=1099511628211ULL;
+  }
+  char buf[17]={};
+  std::snprintf(buf,sizeof(buf),"%016llx",static_cast<unsigned long long>(hash));
+  return buf;
+}
 static std::string outcome(const ps4net::Response& r){
   return "http="+std::to_string(r.status)+" transport="+
     std::to_string(r.platform_error)+" errno="+std::to_string(r.last_errno)+
     " bytes="+std::to_string(r.body.size())+
     " format="+(r.body.empty()?"empty":r.body[0]=='{'||r.body[0]=='['?"json":
                 r.body[0]=='<'?"html":"other")+
+    " body_id="+fingerprint(r)+
     " bounded="+std::to_string((int)!r.truncated);
 }
 Summary run(const ptv::Settings& cfg,bool githubWriteCheck){
@@ -91,6 +107,15 @@ Summary run(const ptv::Settings& cfg,bool githubWriteCheck){
     const auto probe=ps4net::request("https://example.com/","GET",{},"",16384);
     mark(s,"HTTP_PROBE",probe.status==200&&probe.platform_error==0,
          "public HTTPS endpoint "+outcome(probe));
+  }
+  // On the same public host, a nonexistent path should produce a 404.
+  // Compare the error page body_id with the 404s from unrelated API hosts.
+  // A matching fingerprint strongly suggests host rewriting / interception.
+  {
+    const auto control=ps4net::request(
+      "https://example.com/playtorrio-network-probe-nonexistent-2026",
+      "GET",{},"",16384);
+    note("HTTP_404_CONTROL","Missing page on public HTTPS host "+outcome(control));
   }
   // Verify the TMDB v3 key using an application-level request.
   // Never print a URL with the api_key query parameter, or any response body.

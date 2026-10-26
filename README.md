@@ -1,4 +1,14 @@
-# PlayTorrio PS4 — Native TMDB browsing (v1.2.0)
+# PlayTorrio PS4 — HTTPS routing investigation (v1.2.1)
+
+The v1.2 logs show HTTPS 200 for example.com while TMDB, an addon and both TorBox endpoints all return an HTML 404 of exactly 389 bytes. A likely cause is shadPS4's `host_overrides.json`, particularly a `"*"` wildcard that routes unrelated domains to one web server.
+
+**First check the emulator user-data folder:** on default Windows installs this is `%APPDATA%\\shadPS4\\host_overrides.json`; for portable installs, check `user\\host_overrides.json` beside the emulator executable. If the file has a `"*"` rule or entries redirecting TMDB/addon/TorBox domains, rename it temporarily and fully restart shadPS4. Do not delete game-specific overrides without backing them up.
+
+This build adds `HTTP_404_CONTROL`, which requests a nonexistent resource on `example.com`, and `body_id` fingerprints for HTTP errors. If its error `body_id` matches the 404s from TMDB, TorBox and addons, all likely went through the same unexpectedly selected backend. The fingerprint is a hash, not logged HTTP content. shadPS4's own internal log may include credentials in full URLs: redact those before sharing.
+
+Native TMDB fetch, local fallback, and `githubSyncEnabled=false` are unchanged.
+
+---
 
 Enable **Set Network Connected Status as True** in shadPS4 and leave **Disable HTTPS** unchecked. Native PS4 HTTP now requests trending TV and movies directly after `settings.json` is loaded; Square on Home/Discover retries. The Windows HostTools loader and `catalog.json` remain optional fallback mechanisms.
 
