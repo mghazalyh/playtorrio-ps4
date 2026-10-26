@@ -1,4 +1,12 @@
-# PlayTorrio PS4 — Codec-aware playback sources (v1.3.3)
+# PlayTorrio PS4 — Cached native video presentation (v1.3.4)
+
+The latest user shadPS4 diagnostics from **v1.3.3** prove one show decoded **97 video frames**, although only a brief flashing logo appeared instead of stable playback. Another show's CDN returned HTTP **429** after ~99 requests of 256 KiB each; no decoded frames. AudioOut returned **0x8026000E (already initialized)** and the app incorrectly aborted sound output.
+
+**v1.3.4 playback changes:** use bounded **2 MiB HTTP Range blocks** to reduce CDN request volume; treat AudioOut "already initialized" as usable; cache the last NV12-decoded frame as RGB32; render via direct, write-only PS4 VideoOut row copying rather than thousands of 2x2 rectangles; keep that frame visible while waiting for the next; optimize PS4 compilation; log VIDEO_PROGRESS frames/elapsed_s/ranges.
+
+**Validation:** code and build are being tested in CI. **Smooth video playback, sound, and actual PS4 console behavior are NOT yet verified.** For a new emulator test, install v1.3.4 only after GitHub release assets appear and check `VIDEO_IO`, `VIDEO_PROGRESS`, `AUDIO`, and visible frame continuity. GitHub watchlist sync remains disabled.
+
+---
 
 v1.3.1 accepted a remote media file without producing decoded frames. v1.3.2 instrumented read callbacks and fixed indefinite buffering. v1.3.3 additionally prefers H.264/AAC 1080p sources over AV1, VP9, and 4K alternatives to increase compatibility with the console-oriented AvPlayer path. Source descriptions are untrusted and preferences cannot guarantee codec compatibility; seekable byte-range HTTP and actual video decoding still require runtime verification.
 
