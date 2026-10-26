@@ -1,18 +1,14 @@
 {
   "addons": [
-    {
-      "manifestUrl": "https://YOUR-ADDON-HOST/OPTIONAL-CONFIG/manifest.json"
-    }
+    "https://YOUR-ADDON-URL/manifest.json"
   ],
-  "torboxApiKey": "PASTE_ONLY_ON_YOUR_PS4",
-  "githubRepo": "mghazalyh/torriodb",
-  "githubBranch": "main",
-  "githubToken": "PASTE_ONLY_ON_YOUR_PS4",
-  "englishSubtitles": true,
+  "tmdbApiKey": "PASTE_YOUR_TMDB_V3_API_KEY_HERE",
+  "torboxApiKey": "PASTE_YOUR_TORBOX_API_KEY_HERE",
+  "githubSyncEnabled": false,
+  "githubToken": "",
   "englishAudio": true,
+  "englishSubtitles": true,
   "diagnosticType": "movie",
-  "diagnosticId": "tt0000001",
-  "torboxTorrentId": -1,
-  "torboxFileId": -1,
+  "diagnosticId": "",
   "directStreamUrl": ""
 }
