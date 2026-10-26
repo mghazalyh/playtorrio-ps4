@@ -1,0 +1,34 @@
+name: Track PlayTorrio V3 feature parity
+
+on:
+  schedule:
+    - cron: '0 7 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  compare:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Keep exactly one PS4 feature-review task
+        env:
+          GH_TOKEN: ${ github.token }}
+          TARGET_REPO: ${ github.repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          upstream_sha="$(curl --fail --silent --show-error \
+            'https://api.github.com/repos/mghazalyh/ptv3/commits/parity-floating-player-both' \
+            | python3 -c 'import json,sys;print(json.load(sys.stdin)["sha"])')"
+          open="$(gh issue list --repo "$TARGET_REPO" --state open --json title \
+            --jq '.[] | select(.title=="Review upstream ptv3 features for PS4") | .title')"
+          if [ -z "$open" ]; then
+            gh issue create --repo "$TARGET_REPO" \
+              --title 'Review upstream ptv3 features for PS4' \
+              --body "Latest upstream ptv3: \`$upstream_sha\`. Compare the user-facing features and update FEATURE_PARITY.md. Keep PS4 implementations native; do not imply unimplemented playback works."
+          else
+            echo 'A single feature parity task is already open.'
+          fi
