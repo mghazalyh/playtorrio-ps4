@@ -6,7 +6,7 @@
 
 **Artwork strategy:** TMDB `poster_path` → HTTPS `image.tmdb.org` w342 → bounded JPEG/PNG decoder → 28-item background-loaded image cache → native PS4 RGB32 framebuffer. Blank/colored placeholder cards are displayed until images finish; this isn't the final GPU/Piglet image renderer.
 
-**Tests:** C++ parser regressions and OpenOrbis cross-compilation/package completed in <https://github.com/mghazalyh/playtorrio-ps4/actions/runs/40386525983>. **New UI, controller navigation, image loading and source choice have not yet been verified inside shadPS4 or on a real PS4.** Video quality and unsupported audio formats remain separate issues. Library GitHub synchronization remains **off**.
+**Tests:** C++ parser regressions and OpenOrbis cross-compilation/package completed in <https://github.com/mghazalyh/playtorrio-ps4/actions/runs/40387494112>. **New UI, controller navigation, image loading and source choice have not yet been verified inside shadPS4 or on a real PS4.** Video quality and unsupported audio formats remain separate issues. Library GitHub synchronization remains **off**.
 
 **Research:** `docs/ui-integration.md` compares the user's <https://github.com/mghazalyh/ptv3> Windows/iOS detail/episodes/sources pages to the native PS4 implementation, plus both Stremio-PS4 and GMCA artwork/rendering designs. `docs/rendering-research.md` covers the planned Piglet GPU texture step.
 
