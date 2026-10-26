@@ -67,6 +67,12 @@ struct AvFrame {
   uint64_t timestamp;
   AvDetails details;
 };
+struct AvStreamInfo {
+  uint32_t type; // 0 video, 1 audio, 2 timed text
+  uint8_t reserved[4];
+  AvDetails details;
+  uint64_t duration,startTime;
+};
 AvHandle sceAvPlayerInit(AvInitData*);
 int32_t sceAvPlayerAddSource(AvHandle,const char*);
 int32_t sceAvPlayerAddSourceEx(AvHandle,int32_t,const char*);
@@ -76,6 +82,10 @@ int32_t sceAvPlayerPause(AvHandle);
 int32_t sceAvPlayerResume(AvHandle);
 int32_t sceAvPlayerIsActive(AvHandle);
 int32_t sceAvPlayerGetVideoDataEx(AvHandle,AvFrame*);
+int32_t sceAvPlayerGetStreamInfo(AvHandle,uint32_t,AvStreamInfo*);
+int32_t sceAvPlayerStreamCount(AvHandle);
+int32_t sceAvPlayerEnableStream(AvHandle,uint32_t);
+int32_t sceAvPlayerDisableStream(AvHandle,uint32_t);
 int32_t sceAvPlayerGetAudioData(AvHandle,AvFrame*);
 }
 static_assert(sizeof(AvAllocCallbacks)==40,"AvPlayer allocator ABI");
