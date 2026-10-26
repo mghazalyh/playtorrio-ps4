@@ -14,6 +14,7 @@
 #include <orbis/UserService.h>
 #include "graphics.h"
 #include "../src/core.hpp"
+#include "diagnostics.hpp"
 
 std::stringstream debugLogStream;
 
@@ -249,6 +250,19 @@ bool importUsb(ptv::Settings& settings,std::string& message){
   message="No settings JSON found on USB0 or USB1";
   return false;
 }
+void diagnosticBand(Scene2D& s,const Fonts& f,const ps4diag::Summary& report,
+                    bool ran,bool logging) {
+  round(s,51,648,1176,29,9,{29,31,44});
+  const std::string label=ran?
+    ("NETWORK TEST: "+std::to_string(report.passed)+" PASS  "+
+     std::to_string(report.failed)+" FAIL  "+
+     std::to_string(report.skipped)+" SKIP   STREAMS "+
+     std::to_string(report.addon_streams)+"   LIBRARY "+
+     std::to_string(report.library_titles)):
+    "Press TRIANGLE to test addons, TorBox, stream transfer, and GitHub";
+  txt(s,f,cut(label,107),62,668,report.failed?gold:green,0);
+  if(!logging)txt(s,f,"LOG NOT WRITABLE",992,668,gold,0);
+}
 void footer(Scene2D& s,const Fonts& f,int tab,int focus){
   rect(s,0,684,1280,36,{16,19,28});
   circle(s,60,702,8,{61,158,117});
@@ -259,7 +273,8 @@ void footer(Scene2D& s,const Fonts& f,int tab,int focus){
   txt(s,f,"Back",251,707,muted,0);
   txt(s,f,"L1 / R1   Tabs",387,707,muted,0);
   txt(s,f,"D-Pad   Navigate",594,707,muted,0);
-  if(tab==4)txt(s,f,"Square   Import USB",906,707,muted,0);
+  txt(s,f,"Triangle   Test all",798,707,muted,0);
+  if(tab==4)txt(s,f,"Square USB",1120,707,muted,0);
 }
 
 }
@@ -287,13 +302,24 @@ int main(){
      !screen->InitFont(&fonts.lg,fontPath,35)||
      !screen->InitFont(&fonts.xl,fontPath,52))return 2;
 
+  const bool logging=ps4diag::start_logging();
+  ps4diag::note("BOOT","Native application launched; use TRIANGLE to run all network checks");
   int tab=0,focus=0,frame=0;
+  ps4diag::Summary diagnostic;
+  bool tested=false;
   uint32_t previous=0;
   while(true){
     OrbisPadData data={};
     if(pad>=0&&scePadReadState(pad,&data)>=0){
       uint32_t pressed=data.buttons&~previous;
       previous=data.buttons;
+      if(pressed&ORBIS_PAD_BUTTON_TRIANGLE){
+        // Synchronous suite; persistent per-request flushing makes it useful
+        // even when a firmware-specific network API hangs or the app crashes.
+        ps4diag::note("CONTROL","User requested full diagnostics");
+        diagnostic=ps4diag::run(settings,true);
+        tested=true;
+      }
       if(pressed&ORBIS_PAD_BUTTON_R1){tab=(tab+1)%5;focus=0;}
       if(pressed&ORBIS_PAD_BUTTON_L1){tab=(tab+4)%5;focus=0;}
       if(tab==0){
@@ -319,6 +345,8 @@ int main(){
         std::string result;
         imported=importUsb(settings,result);
         parseError=result;
+        ps4diag::note("IMPORT",imported?
+          "PASS local USB settings installed":"FAIL missing/invalid USB settings");
       }
       if(pressed&ORBIS_PAD_BUTTON_CROSS && tab==1){
         parseError="Catalog connection is not included in this preview";
@@ -336,6 +364,7 @@ int main(){
       section(*screen,fonts,tab,settings,imported,focus,parseError);
     }
     nav(*screen,fonts,tab);
+    diagnosticBand(*screen,fonts,diagnostic,tested,logging);
     footer(*screen,fonts,tab,focus);
     screen->SubmitFlip(frame);
     screen->FrameWait(frame);
