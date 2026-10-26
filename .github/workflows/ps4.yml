@@ -84,13 +84,13 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          release=ps4-local-settings-0.8.0
+          release=ps4-black-screen-fix-0.9.0
           if gh release view "$release" >/dev/null 2>&1; then
             gh release upload "$release" dist/*.pkg dist/*.zip --clobber
           else
             gh release create "$release" dist/*.pkg dist/*.zip --prerelease \
-              --title "PlayTorrio PS4 v0.8 — Local addon and TMDB settings" \
-              --notes "Includes Windows-mapped local settings.json import and Square reload, Stremio manifest URLs, TMDB v3 key support and authenticated trending endpoint test. GitHub library sync defaults off and sends no GitHub requests when disabled. Unverified media decoder alpha remains experimental."
+              --title "PlayTorrio PS4 v0.9 — shadPS4 black screen and glyph compositing fix" \
+              --notes "Removes direct framebuffer readback from glyph rendering to fix black-screen regression in shadPS4. Uses unsigned glyph alpha, write-only DrawPixel, clears home framebuffer per frame, and logs startup frame checkpoints. Keeps local TMDB/addon settings and GitHub sync disabled by default. Console video playback not verified."
           fi
       - name: Send experimental package to existing Telegram group
         env:
@@ -110,7 +110,7 @@ jobs:
           else
             curl --fail --silent --show-error --retry 2 \
               -F "chat_id=$CHANNEL_ID" -F "document=@$pkg" \
-              -F "caption=PlayTorrio PS4 v0.8 simple local settings with TMDB and GitHub sync off. X in Discover/Addons/My List to resolve video, X pause, Circle exit. FTP logs /data/playtorrio/logs/diagnostics.log. Not yet PS4-tested. $RUN_URL" \
+              -F "caption=PlayTorrio PS4 v0.9 shadPS4 black screen fix with safe glyph renderer. X in Discover/Addons/My List to resolve video, X pause, Circle exit. FTP logs /data/playtorrio/logs/diagnostics.log. Not yet PS4-tested. $RUN_URL" \
               "https://api.telegram.org/bot$BOT_TOKEN/sendDocument" >/dev/null
           fi
           echo "Telegram package delivered."
