@@ -401,6 +401,7 @@ void Player::close(){
     sceAvPlayerStop(handle_);sceAvPlayerClose(handle_);
     handle_=nullptr;
   }
+  rgbPixels_.clear();rgbW_=rgbH_=0;
   remoteUrl_.clear();
   remoteBytes_=0;
   cache_.clear();
