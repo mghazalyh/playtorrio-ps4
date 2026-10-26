@@ -7,6 +7,8 @@
 #include <orbis/Pad.h>
 #include <orbis/UserService.h>
 #include "graphics.h"
+
+std::stringstream debugLogStream;
 #include "../src/core.hpp"
 
 static const char* glyph(char c){
@@ -95,8 +97,8 @@ int main(){
   sceUserServiceInitialize(&param);
   int user=-1;sceUserServiceGetInitialUser(&user);
   int pad=scePadOpen(user,0,0,nullptr);
-  Scene2D scene(1280,720,4);
-  if(!scene.Init(0xC000000,2))return 1;
+  Scene2D* scene=new Scene2D(1280,720,4);
+  if(!scene->Init(0xC000000,2))return 1;
   int tab=0,frame=0;unsigned int previous=0;
   while(true){
     OrbisPadData reading={};
@@ -107,8 +109,8 @@ int main(){
       if(edge&(ORBIS_PAD_BUTTON_L1|ORBIS_PAD_BUTTON_LEFT))tab=(tab+4)%5;
       if(edge&ORBIS_PAD_BUTTON_CIRCLE)tab=4;
     }
-    draw(scene,tab,settings,imported);
-    scene.SubmitFlip(frame);scene.FrameWait(frame);scene.FrameBufferSwap();
+    draw(*scene,tab,settings,imported);
+    scene->SubmitFlip(frame);scene->FrameWait(frame);scene->FrameBufferSwap();
     frame++;sceKernelUsleep(42000);
   }
   return 0;
