@@ -9,9 +9,9 @@ for needed in "$sdk/link.x" "$sdk/lib/crt1.o" "$sdk/samples/_common/graphics.cpp
   "$toolbin/create-fself" "$toolbin/create-gp4" "$toolbin/PkgTool.Core"; do
   test -e "$needed" || { echo "Missing OpenOrbis SDK component: $needed" >&2; exit 2; }
 done
-flags=(-std=c++17 -D_GNU_SOURCE -D_POSIX_C_SOURCE=200809L -D_XOPEN_SOURCE=700 -DGRAPHICS_USES_FONT --target=x86_64-pc-freebsd12-elf -fPIC -funwind-tables
+flags=(-std=c++17 -O2 -D_GNU_SOURCE -D_POSIX_C_SOURCE=200809L -D_XOPEN_SOURCE=700 -DGRAPHICS_USES_FONT --target=x86_64-pc-freebsd12-elf -fPIC -funwind-tables
        -isysroot "$sdk" -isystem "$sdk/include" -isystem "$sdk/include/c++/v1"
-       -I "$sdk/samples/_common" -I vendor)
+       -I "$work" -I "$sdk/samples/_common" -I vendor)
 clang++ "${flags[@]}" -c ps4/main.cpp -o "$work/obj/main.o"
 clang++ "${flags[@]}" -c src/core.cpp -o "$work/obj/core.o"
 clang++ "${flags[@]}" -c src/config_loader.cpp -o "$work/obj/config_loader.o"
@@ -21,7 +21,7 @@ clang++ "${flags[@]}" -c ps4/native_net.cpp -o "$work/obj/native_net.o"
 clang++ "${flags[@]}" -c ps4/diagnostics.cpp -o "$work/obj/diagnostics.o"
 clang++ "${flags[@]}" -c ps4/video_player.cpp -o "$work/obj/video_player.o"
 clang++ "${flags[@]}" -c ps4/source_resolver.cpp -o "$work/obj/source_resolver.o"
-python3 scripts/patch-graphics.py "$sdk/samples/_common/graphics.cpp" "$work/graphics-fixed.cpp"
+python3 scripts/patch-graphics.py "$sdk/samples/_common/graphics.cpp" "$sdk/samples/_common/graphics.h" "$work/graphics-fixed.cpp" "$work/graphics.h"
 clang++ "${flags[@]}" -c "$work/graphics-fixed.cpp" -o "$work/obj/graphics.o"
 ld.lld -m elf_x86_64 -pie --script "$sdk/link.x" --eh-frame-hdr \
   "$work/obj/main.o" "$work/obj/core.o" "$work/obj/config_loader.o" "$work/obj/catalog.o" "$work/obj/catalog_online.o" "$work/obj/graphics.o" "$work/obj/native_net.o" "$work/obj/diagnostics.o" "$work/obj/video_player.o" "$work/obj/source_resolver.o" \
