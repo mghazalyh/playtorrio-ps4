@@ -264,6 +264,22 @@ Because this log ended immediately after source acceptance, it cannot by itself 
 - GitHub Actions run **40375602957** succeeded: all portable tests and OpenOrbis PS4 packaging passed; release ZIP and PKG were verified via API.
 - **Current next user test is v1.3.3. Do NOT report first-frame video until the user demonstrates it.**
 
+### Stage I — User v1.3.3 playback results and v1.3.4 presentation experiment
+
+**User-tested v1.3.3, sanitized diagnostics(4).log, 2026-10-27 Singapore:**
+
+- Native HTTP checks: public HTTPS 200; TMDB trending 200; Stremio manifest 200; TorBox account and inventory 200; suite passed=6 failed=0 skipped=5, and github_enabled=0.
+- An early title selection occurred before the catalog was populated and could not resolve; this is distinct from the later two media attempts.
+- **First media attempt:** 117 source candidates, preferred score 240. CDN HEAD 200 and HTTP 206 media, file size **318,800,024 bytes**. AvPlayer file open callback succeeded and read callbacks occurred. The diagnostic logged CDN range chunks 32, 64, 96 and then **HTTP 429 (rate limited)** after **99 fetched 256 KiB chunks** and 198 read callback invocations. User stopped; **0 decoded frames**.
+- **Second media attempt (TV episode):** 131 source candidates, preferred score 252. CDN HEAD 200 and HTTP 206 media size **2,030,476,793 bytes**. AvPlayer file open and read callback succeeded; despite a failed audio init, video eventually produced a **PASS first decoded video frame rendered** and the session finished with **97 decoded video frames** after user stop. User saw **brief flashing logo frames rather than usable continuous video**.
+- Audio error -2144993266 = hex **0x8026000E**, which shadPS4 v0.20.0 defines as **ORBIS_AUDIO_OUT_ERROR_ALREADY_INIT**; original PlayTorrio incorrectly skipped audio when init returned this code. Another startup may call AudioOutInit earlier; treat already initialized as success then attempt audio output port.
+- The old statement "no frames have ever decoded" is **no longer accurate**. We now have limited decoded frames but severe presentation and streaming performance issues.
+- Likely contributors (hypotheses): each decoded 1152x648 frame was rendered via ~180,000 2x2 scene.DrawRectangle calls, the UI cleared its buffer each frame even when the decoder had no fresh frame, and the 256 KiB HTTP chunks drove 99 CDN requests and a 429. These are not proven sole causes.
+- **v1.3.4 implementation:** Larger bounded **2 MiB** HTTP Range cache for fewer requests, accept AudioOut's already initialized status, cap initial picture at 960x540, convert NV12 into cached PS4 RGB32 video pixels, and use a row-wise, **write-only BlitRgb32** method for native VideoOut presentation. Re-blit the cached last image on decode gaps or pause. Optimize PS4 compiler with -O2, log periodic VIDEO_PROGRESS decoded_frames/elapsed/range count.
+- The blitter is added through a build-local patch of the official OpenOrbis sample graphics source, with ps4/graphics.h mirroring the SDK's declarations plus one new method. This is still a native PS4 code path, not Windows-only software playback.
+- **CI compilation success** for the underlying RGB32 integration at commit d1791bbd28bfcd262c5ca16640b7a395bc4662c2 (GitHub run 40380206205), while v1.3.4 tagged CI/release should be separately checked and logged below before claiming publish success.
+- No real PS4 hardware or v1.3.4 smooth video/audio test has yet been reported. The user must confirm actual visible frame continuity and sound.
+
 ## 5. Important architecture and debugging discoveries (do not lose)
 
 ### 5.1 HTTP transport symptom versus root cause
