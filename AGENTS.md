@@ -71,7 +71,7 @@ For **documentation-only** tasks, record what was documented without pretending 
 | .github/workflows/shadps4-smoke.yml | Historical experimental emulator smoke harness; **not** proof of current playback |
 | FEATURE_PARITY.md | Parity checklist (may be stale; reconcile only when assigned) |
 | README.md / WINDOWS_SETUP.md | Mixed historical documentation; some old claims are obsolete |
-| handover.md | Authoritative project timeline, runtime evidence, unresolved work and takeover checkpoint |
+| docs/ui-integration.md | Windows/iOS ptv3 and PS4 poster/details/source screen research |\n| ps4/poster_cache.cpp/.hpp | Bounded asynchronous TMDB JPEG/PNG poster cache |\n| src/show_details.hpp | TMDB series/season/episode parsing and Stremio episode ID generation |\n| handover.md | Authoritative project timeline, runtime evidence, unresolved work and takeover checkpoint |
 
 ## 5. Build and tests
 
@@ -133,8 +133,8 @@ Key last proven runtime snapshot, from user's October 27, 2026 shadPS4 tests:
 
 ## 8. Current preferred next action
 
-The user confirmed **v1.3.4 displays actual videos** but image quality looks like it is “rendered in a video game.” The new user diagnostic shows **219** and **1,059 decoded video frames**; an audio track is skipped because it is not **48k stereo PCM**. The next v1.3.5 image-quality experiment changes the native CPU scaler from blocky 2x2 output to individual bilinear HD pixels with BT.709, proper crop and limited/full range. **v1.3.5 CI passed and was released, but the user has not yet verified its picture or frame rate.** Analyze **VIDEO_QUALITY convert_ms**, output resolution and VIDEO_PROGRESS counters from the user's next emulator test; do not call playback quality fixed based only on CI.
+**Current baseline: PlayTorrio PS4 v1.4.0, `ps4-cinematic-ui-1.4.0`.** The user requested major native UI work grounded in the Windows/iOS `mghazalyh/ptv3` Flutter project and the Stremio-PS4/GMCA poster systems. Implemented: bounded asynchronous TMDB artwork, Discover poster cards, a title-details view, TMDB season and episode fetching, source list/picker with delayed selected TorBox resolution, and OpenOrbis packaging. The latest C++ and PS4 CI **passed** (workflow 40386525983) but the new UI **has NOT been tested on the user's shadPS4 or any real PS4**. The next step is user testing of poster loading, season changes and selected stream playback; log only sanitized DETAIL, SOURCES, PLAYBACK status. Never infer finished UI from CI.
 
-**Crucial reference research:** Read [docs/rendering-research.md](docs/rendering-research.md) before the next graphics overhaul. Navinas3460/Stremio-PS4 uses PS4 AvPlayer, asynchronous conversion, Piglet OpenGL textures and GL_LINEAR scaling; thcolin/gamepad-media-center-aggregator uses Borealis with libmpv/FFmpeg and PS4 shader patches. Prefer a real PS4-native GPU-backed video-texture architecture over repeated CPU scaling forever; maintain separate UI/decoder concerns, full decoded image fidelity, double/triple buffering, correct color/range/crop and audio sync. Reference repo GPL-3.0 and Apache-2.0/third-party licensing must be respected; **do not paste GPL-3.0 implementation source into this repo without explicit licensing decisions.**
+Read `docs/ui-integration.md` (Windows/iOS and PS4 reference parity) and `docs/rendering-research.md` (GPU renderer architecture) before continuing. The current poster drawing still uses Scene2D RGB32 and is a transitional solution, not a replacement for a native GPU/Piglet texture compositor. Respect stb_image permissive license and Stremio-PS4 GPLv3; no GPLv3 application code is integrated. Prioritize physical PS4, and **leave GitHub watchlist syncing disabled**.
 
 **Last rule:** whenever you advance this project, advance **handover.md** as part of the same task.

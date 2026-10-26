@@ -4,22 +4,18 @@
 
 ## 0. CURRENT STATE — READ THIS FIRST
 
-**Snapshot date:** 2026-10-27 (Singapore time, UTC+08).  
-**GitHub repository:** https://github.com/mghazalyh/playtorrio-ps4  
-**Default branch:** main, public.  
-**Latest implemented feature commit before these handover files:** a887b6c710373c5c374b6eba6d3e9b9e8c594526 (codec-aware source preference, v1.3.3).  
-**Latest published build:** **ps4-native-quality-1.3.5**, https://github.com/mghazalyh/playtorrio-ps4/releases/tag/ps4-native-quality-1.3.5 (ZIP/PKG published, PS4 CI passed). Latest user-tested build **v1.3.4**, picture plays but looks blocky/pixelated and audio is not fully working.  
-**CI run:** https://github.com/mghazalyh/playtorrio-ps4/actions/runs/40383384276 — completed successfully for v1.3.5: portable C++ tests (including NV12 resampling), OpenOrbis cross-compilation, PS4 PKG and emulator ZIP validation.  
-**User's most recent actual emulator playback test:** **v1.3.4**, user-provided diagnostics(5).log. First playable show **219 decoded frames** from a 318,800,024-byte source; second show **1,059 decoded frames** from a 1,584,500,550-byte source. Both display pictures, but user reports game-like poor quality. First show logged **AUDIO SKIP stream format not 48k stereo PCM**. See new Stage J and docs/rendering-research.md.  
-**Current primary blocker:** Decoding and image presentation are confirmed in shadPS4 v1.3.4 but **picture quality is bad**, because the old renderer duplicated pixels in 2x2 blocks at only 960x540 and used SD color coefficients. First v1.3.4 video displayed 219 frames, second 1059; one stream logged AUDIO SKIP stream format not 48k stereo PCM. v1.3.5 improves CPU color/scaling, but **its actual picture quality, frame rate, and audio are NOT yet tested**. Physical PS4 untested.  
-**Top next step:** user-test v1.3.5 picture detail/FPS and inspect VIDEO_QUALITY convert_ms plus VIDEO_PROGRESS and AUDIO logs; next major improvement is a **native PS4 Piglet GPU-texture renderer** with linear filtering and decoupled conversion (see docs/rendering-research.md).
+**Snapshot date:** 2026-10-27 Singapore time (UTC+08).  
+**GitHub repository:** https://github.com/mghazalyh/playtorrio-ps4, default branch main.  
+**Latest feature release:** **ps4-cinematic-ui-1.4.0**: https://github.com/mghazalyh/playtorrio-ps4/releases/tag/ps4-cinematic-ui-1.4.0  
+**Last feature CI:** https://github.com/mghazalyh/playtorrio-ps4/actions/runs/40386525983 — portable C++ tests and PS4 Clang/LLD cross-compilation, PKG/ZIP validation all succeeded.  
+**New features implemented (not yet user-tested):** async TMDB poster JPEG/PNG cache, poster-driven Home and Discover screens, selected movie/show details, native TV seasons/episodes from TMDB, specific `ttIMDb:season:episode` IDs, explicit Stremio source selection before AvPlayer/optional TorBox. Research tracked in `docs/ui-integration.md`.  
+**Latest actual user runtime test:** v1.3.4 decoded **219** and **1,059** frames on two videos; picture appeared game-like/blocky; first source logged **AUDIO SKIP stream format not 48k stereo PCM**. v1.3.5 bilinear CPU renderer was CI-built but user's actual visual result is not known. v1.4.0 new UI/poster/source flow is likewise **NOT YET EMULATOR TESTED** and physical PS4 not tested.  
+**Top next task:** test v1.4.0 in shadPS4: confirm actual poster images, details navigation, seasons and episodes, source rows, selected-source playback. Validate against sanitized DETAIL/SOURCES/VIDEO_IO logs; fix actual regressions, not assumptions.  
+**Hardware-first:** physical PS4 GoldHEN FW 10.01 remains target; shadPS4 is an emulator/test tool. Keep core/backend native, isolate emulator workarounds, no required Windows HostTools.  
+**Strict GitHub sync rule:** `githubSyncEnabled=false`; no private cloud library read/write unless explicitly requested.
 
-**Verified in emulator:** native HTTP(S) requests, TMDB trending JSON, Stremio manifest, TorBox authenticated APIs, real catalog, Stremio source resolution, and range-compatible media access.  
-**Verified in CI:** C++ regression tests, PS4 package format, extracted emulator game ZIP content.  
-**Not verified:** acceptable HD picture/smooth video, synchronized audible sound, rendered subtitles, full 1080p performance, **any tests on a physical PS4**, and production-quality media playback. Confirmed on v1.3.4 emulator: 219 and 1,059 decoded frames with visible but poor-quality video.
-
-**User directive:** Physical PS4 (GoldHEN, target firmware 10.01) is the product target. shadPS4 is the test/development environment. Share common core functionality, isolate emulator quirks, preserve a real-hardware-compatible video architecture. **Do not turn HostTools or other Windows helpers into a permanent console dependency.**  
-**GitHub watchlist rule:** githubSyncEnabled must remain **false** and GitHub watchlist read/write disabled until the user requests otherwise.
+**Verified:** native PS4 HTTP(S), TMDB catalog, installed addon source lookup, TorBox, decoded AvPlayer video frames and native packaging in previous versions. v1.4.0 CI compiled and host tests passed.  
+**Not verified:** v1.4.0 poster/season/source UI on emulator or console; acceptable sustained picture and audio, subtitles, hardware operation, true GPU textures, and production readiness.
 
 ### Quick resume command sequence
 
@@ -38,10 +34,11 @@ The documentation-creation commit necessarily changes HEAD after a887b6c; treat 
 
 ### Current downloadable artifacts
 
-- Emulator-extracted ZIP: https://github.com/mghazalyh/playtorrio-ps4/releases/download/ps4-native-quality-1.3.5/PlayTorrio-PS4-shadPS4-extracted.zip (verified released, 647,447 bytes as checked on 2026-10-27).
-- Experimental PKG: https://github.com/mghazalyh/playtorrio-ps4/releases/download/ps4-native-quality-1.3.5/PlayTorrio-PS4-GoldHEN-10.01-EXPERIMENTAL.pkg (verified released, 6,619,136 bytes).
-- The ZIP contains the install-ready **BREW20346/** folder; Windows **HostTools/** are included but optional. The PKG is NOT proof of a working hardware video player.
-- Build's user-facing package metadata: TITLE_ID **BREW20346**, CONTENT_ID **IV0000-BREW20346_00-PLAYTORRIOPS4APP**, APP_VER and VERSION **01.35**.
+- Emulator ZIP: https://github.com/mghazalyh/playtorrio-ps4/releases/download/ps4-cinematic-ui-1.4.0/PlayTorrio-PS4-shadPS4-extracted.zip (720,987 bytes at first verified publication).
+- Experimental console PKG: https://github.com/mghazalyh/playtorrio-ps4/releases/download/ps4-cinematic-ui-1.4.0/PlayTorrio-PS4-GoldHEN-10.01-EXPERIMENTAL.pkg (6,619,136 bytes).
+- Both are built from native C++ via OpenOrbis. Title ID **BREW20346**, APP_VER and VERSION **01.40**.
+- ZIP contains BREW20346 and optional Windows HostTools; none of the latter are required for a console or native TMDB.
+- Note: workflow reuploads same release assets on subsequent docs-only main pushes, so use HEAD and workflow SHA to locate actual code.
 
 ## 1. Why this repository exists / ownership and intent
 
@@ -308,6 +305,26 @@ Because this log ended immediately after source acceptance, it cannot by itself 
 - **NOT yet proven:** new visuals or frame rate on shadPS4; **bilinear CPU work may actually reduce FPS**, so user's next test must compare screen clarity AND measured convert_ms and frame throughput. Physical PS4 remains untested.
 - Audio remains separate: a stream logged not-48k-stereo-PCM, and the v1.3.5 fix does not add resampling, downmixing, or audio sync.
 
+### Stage K — v1.4.0 major UI, native TMDB posters and explicit episode/source selection
+
+**User request (2026-10-27):** Dramatically improve PlayTorrio PS4 UI using the user's Windows/iOS repo `mghazalyh/ptv3` as a feature reference and two console media-center repositories for posters and browsing. Asked for selecting TV shows, seasons and episodes and then **choosing the exact source** rather than autoplay.
+
+**Research:** `docs/ui-integration.md` documents `ptv3` Flutter `details_page.dart`, `player_episodes_panel.dart`, `player_sources_panel.dart`, and Stremio-PS4 `src/net/images.cpp/.h`, `src/ui/details_screen.cpp`, plus GMCA. Stremio uses threaded JPEG/PNG decoding and bounded GPU texture LRU; our first pass uses similar architecture but keeps native Scene2D VideoOut while Piglet GPU integration remains future work. The image decoder is permissively licensed `stb_image` v2.25 from the reference's third_party vendor, NOT imported GPL application logic.
+
+**Code implemented:**
+- `src/catalog.hpp/.cpp` stores TMDB poster_path and backdrop_path from native trending/popular responses and optional local JSON.
+- `vendor/stb_image.h` (original stb_image, public-domain/MIT offer); `ps4/poster_cache.hpp/.cpp` validates relative TMDB image paths, performs asynchronous native PS4 HTTPS `image.tmdb.org/t/p/w342` requests capped at 512 KiB, checks JPEG/PNG dimensions, decodes, downsizes to 160×240 RGB32 and caches up to 28 posters with at most 2 concurrent workers. A missing/download-failed poster remains a colored placeholder. No private URLs/logging.
+- `src/show_details.hpp`: JSON parsers for ordered TMDB seasons and episodes and safe `ttIMDb:season:episode` construction.
+- `ps4/catalog_online.hpp/.cpp`: native TMDB `/tv/{id}` and `/tv/{id}/season/{number}` retrieval; IMDb IDs resolved as needed.
+- `ps4/source_resolver.hpp/.cpp`: user source enumeration `list_sources()` (up to 100 candidates, sorted/direct prioritized) does not call TorBox torrent creation; `resolve_selected()` handles chosen direct HTTPS or chosen torrent via TorBox. Legacy auto resolve retained for testing.
+- `ps4/main.cpp`: 1280×720 Home/Discover poster cards, show/movie detail panel, TV season tabs, ordered selectable episodes, dedicated 7-per-page source picker, loading/error messages and per-panel controller focus. X opens details/episodes/sources and then the selected stream; Circle goes back through the panels; L2/R2 changes season or stream page. Network operations run on worker threads, rendered status handed over with mutexes.
+- `tests/show_details_test.cpp` host JSON and ID tests; scripts/build-ps4.sh compiles the new poster cache and uses 01.40; Actions ps4.yml runs the new test and release tag `ps4-cinematic-ui-1.4.0`.
+- `docs/ui-integration.md` is the research/evidence and parity gap report.
+
+**Verified:** CI run **40386525983** fully passed, both shadPS4 ZIP and PS4 PKG uploaded. No user runtime/UI result for this new feature build yet; Do not claim poster decoding, source choice, seasons or controller behavior actually works until tried in shadPS4. A console test is still required.
+
+**Remaining UI gaps:** artwork currently CPU-pixel blitted, not GPU Piglet textures; no polished backdrop/film gradients, rich cast/related rows, search/genre filtering, local resume or full language/subtitle choice. Current source candidates are filtered/auto-sorted but do offer manual choice; TorBox torrent resolution can enqueue only after explicit source selection. Native FFmpeg/GPU rendering, audio format conversion and hardware testing are separate tasks.
+
 ## 5. Important architecture and debugging discoveries (do not lose)
 
 ### 5.1 HTTP transport symptom versus root cause
@@ -488,6 +505,15 @@ A genuine final version requires direct native PS4 install/use with real hardwar
 10. Do not silently switch on GitHub sync.
 
 ## 9. CHANGE LOG — append new work here (newest first)
+
+### 2026-10-27 — v1.4.0 native cinematic UI, TMDB posters, episodes and source picker (CI PASS, runtime PENDING)
+- **User intent:** big UI overhaul following Windows/iOS ptv3 features and Stremio-PS4/GMCA poster implementations.
+- **Research:** docs/ui-integration.md (files and licensing). ps4 uses original permissive stb_image decoder, not source from the GPL-3.0 Stremio-PS4 application.
+- **Implementation:** src/show_details.hpp, src/catalog.cpp/.hpp, ps4/catalog_online.cpp/.hpp, ps4/source_resolver.cpp/.hpp, ps4/main.cpp, ps4/poster_cache.cpp/.hpp, vendor/stb_image.h, tests/show_details_test.cpp, scripts/build-ps4.sh, Actions workflow and README. Async bounded native TMDB artwork, metadata/season/episode panels, source selection with explicit TorBox conversion action and 1280x720 artwork tiles.
+- **Verification:** portable tests and PS4 cross-compile/package all passed https://github.com/mghazalyh/playtorrio-ps4/actions/runs/40386525983. Published both artifacts at https://github.com/mghazalyh/playtorrio-ps4/releases/tag/ps4-cinematic-ui-1.4.0. Actual shadPS4/PS4 UI functionality not yet tested.
+- **Next:** user emulator runtime test, especially missing poster fallback, navigation, episode lookup, source selection and chosen stream. Preserve no GitHub sync, native console-first path.
+
+
 
 ### 2026-10-27 — v1.3.5 picture-quality pass, external PS4 rendering research (CI PASS; runtime test PENDING)
 

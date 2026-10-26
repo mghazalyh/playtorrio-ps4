@@ -1,3 +1,17 @@
+# PlayTorrio PS4 v1.4.0 — Poster discovery, TV episodes and stream selection
+
+**Native PS4 frontend:** This release adds real asynchronously fetched TMDB poster artwork, a 720p TV-focused discovery experience, movie/series details, native TMDB season and episode listings, and an explicit user-selectable Stremio source picker. Existing AvPlayer networking and rendering remain PS4-native.
+
+**How to use:** Open Home or Discover; highlight a TMDB poster and press **X**. Movies show details and a "Choose stream source" action. TV shows fetch real seasons/episodes; use **L2/R2** to select a season, **D-pad** to highlight an episode and **X** to list available streams. On the source page use **Up/Down**, **L2/R2** for paging and **X** to play one. **Circle** backs out to details/browsing. Installed addons determine available streams; choosing a TorBox source triggers its resolution then, not during listing.
+
+**Artwork strategy:** TMDB `poster_path` → HTTPS `image.tmdb.org` w342 → bounded JPEG/PNG decoder → 28-item background-loaded image cache → native PS4 RGB32 framebuffer. Blank/colored placeholder cards are displayed until images finish; this isn't the final GPU/Piglet image renderer.
+
+**Tests:** C++ parser regressions and OpenOrbis cross-compilation/package completed in <https://github.com/mghazalyh/playtorrio-ps4/actions/runs/40386525983>. **New UI, controller navigation, image loading and source choice have not yet been verified inside shadPS4 or on a real PS4.** Video quality and unsupported audio formats remain separate issues. Library GitHub synchronization remains **off**.
+
+**Research:** `docs/ui-integration.md` compares the user's <https://github.com/mghazalyh/ptv3> Windows/iOS detail/episodes/sources pages to the native PS4 implementation, plus both Stremio-PS4 and GMCA artwork/rendering designs. `docs/rendering-research.md` covers the planned Piglet GPU texture step.
+
+---
+
 # PlayTorrio PS4 — Video picture-quality experiment (v1.3.5)
 
 **Why the picture looked pixelated:** v1.3.4 converted a decoded video frame into at most a 960×540 image and replicated each sampled pixel into a 2×2 square. The PS4 screen is 1280×720. HD sources also used an SD BT.601 YUV-to-RGB formula and the crop/full-range flags were ignored.
