@@ -7,6 +7,8 @@
 #include <cstdint>
 #include <cmath>
 #include <algorithm>
+#include <sys/stat.h>
+#include <cerrno>
 #include <orbis/libkernel.h>
 #include <orbis/Pad.h>
 #include <orbis/UserService.h>
@@ -167,7 +169,7 @@ void section(Scene2D& s,const Fonts& f,int tab,const ptv::Settings& cfg,
   }else{
     heading(s,f,"Settings","Your configuration stays on your console.");
     infoBox(s,f,252,"Import settings",
-            "Reload /data/playtorrio/settings.json",
+            "Square: import JSON from USB drive",
             loaded?"Imported":"Not found",selection==0);
     infoBox(s,f,352,"TorBox",
             cfg.torbox_api_key.empty()?"Add a token to your local JSON file":
@@ -176,7 +178,7 @@ void section(Scene2D& s,const Fonts& f,int tab,const ptv::Settings& cfg,
     infoBox(s,f,452,"GitHub library",
             "Repository: "+cut(cfg.github_repo,44),
             cfg.github_token.empty()?"Missing key":"Key imported",selection==2);
-    if(!error.empty())txt(s,f,cut(error,86),83,588,gold,1);
+    if(!error.empty())txt(s,f,cut(error,82),83,595,gold,1);
   }
 }
 std::string readConfig(){
@@ -185,6 +187,50 @@ std::string readConfig(){
   std::ostringstream out;out<<file.rdbuf();
   auto data=out.str();
   return data.size()>256*1024?"":data;
+}
+// A real, controller-accessible import path; do not require FTP to set up.
+// The imported file is validated before replacing the PS4's local copy.
+bool importUsb(ptv::Settings& settings,std::string& message){
+  const char* locations[]={
+    "/mnt/usb0/playtorrio/settings.json",
+    "/mnt/usb0/playtorrio-settings.json",
+    "/mnt/usb1/playtorrio/settings.json",
+    "/mnt/usb1/playtorrio-settings.json"
+  };
+  for(const char* source:locations){
+    std::ifstream input(source,std::ios::binary);
+    if(!input.good())continue;
+    std::ostringstream buffer;buffer<<input.rdbuf();
+    auto json=buffer.str();
+    if(json.empty()||json.size()>256*1024){
+      message="Invalid settings size. Maximum 256 KB";
+      return false;
+    }
+    ptv::Settings parsed;
+    if(!ptv::import_settings(json,parsed,message))return false;
+    if(::mkdir("/data/playtorrio",0700)<0 && errno!=EEXIST){
+      message="Cannot create /data/playtorrio folder";
+      return false;
+    }
+    const char* temp="/data/playtorrio/settings.json.tmp";
+    std::ofstream output(temp,std::ios::binary|std::ios::trunc);
+    if(!output.good()){
+      message="Cannot write local settings storage";
+      return false;
+    }
+    output.write(json.data(),json.size());output.close();
+    if(!output.good()||::rename(temp,"/data/playtorrio/settings.json")!=0){
+      ::remove(temp);
+      message="Failed saving imported settings";
+      return false;
+    }
+    ::chmod("/data/playtorrio/settings.json",0600);
+    settings=parsed;
+    message="USB settings imported successfully";
+    return true;
+  }
+  message="No settings JSON found on USB0 or USB1";
+  return false;
 }
 void footer(Scene2D& s,const Fonts& f,int tab,int focus){
   rect(s,0,681,1280,39,{16,19,28});
@@ -195,7 +241,7 @@ void footer(Scene2D& s,const Fonts& f,int tab,int focus){
   txt(s,f,"O",286,706,paper,0);
   txt(s,f,"Back",311,708,muted,1);
   txt(s,f,"L1 / R1  Switch tabs",472,708,muted,1);
-  if(tab==4)txt(s,f,"Square  Reload settings",838,708,muted,1);
+  if(tab==4)txt(s,f,"Square  Import USB",838,708,muted,1);
 }
 }
 
@@ -237,12 +283,20 @@ int main(){
       if(pressed&ORBIS_PAD_BUTTON_UP)focus=(focus+(tab==0?4:2))%(tab==0?5:3);
       if(pressed&ORBIS_PAD_BUTTON_CROSS&&tab==0){tab=std::min(focus+1,4);focus=0;}
       if(pressed&ORBIS_PAD_BUTTON_CIRCLE){tab=0;focus=0;}
-      if(pressed&ORBIS_PAD_BUTTON_SQUARE&&tab==4){
-        ptv::Settings temp;std::string error;
-        auto json=readConfig();
-        if(!json.empty()&&ptv::import_settings(json,temp,error)){
-          settings=temp;imported=true;parseError.clear();
-        }else{imported=false;parseError=json.empty()?"Settings file not found":error;}
+      if((pressed&ORBIS_PAD_BUTTON_SQUARE && tab==4)||
+         (pressed&ORBIS_PAD_BUTTON_CROSS && tab==4 && focus==0)){
+        std::string result;
+        imported=importUsb(settings,result);
+        parseError=result;
+      }
+      if(pressed&ORBIS_PAD_BUTTON_CROSS && tab==1){
+        parseError="Catalog connection is not included in this preview";
+      }
+      if(pressed&ORBIS_PAD_BUTTON_CROSS && tab==2){
+        parseError="GitHub live sync is not yet implemented on PS4";
+      }
+      if(pressed&ORBIS_PAD_BUTTON_CROSS && tab==3){
+        parseError="Addon fetching is not yet implemented on PS4";
       }
     }
     if(tab==0)home(*screen,fonts,focus);
