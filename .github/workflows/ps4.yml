@@ -69,7 +69,7 @@ jobs:
           if-no-files-found: error
       - name: Publish clearly labeled prototype release
         env:
-          GH_TOKEN: ${ github.token }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           release=ps4-prototype-0.1.0
           if gh release view "$release" >/dev/null 2>&1; then
@@ -81,9 +81,9 @@ jobs:
           fi
       - name: Send experimental package to existing Telegram group
         env:
-          BOT_TOKEN: ${ secrets.TELEGRAM_BOT_TOKEN }}
+          BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           CHANNEL_ID: "-1003938575195"
-          RUN_URL: https://github.com/${ github.repository }}/actions/runs/${ github.run_id }}
+          RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           if [ -z "$BOT_TOKEN" ]; then
             echo "::notice::Add TELEGRAM_BOT_TOKEN to the PS4 repository's Actions secrets to enable delivery."
