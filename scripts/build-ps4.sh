@@ -15,6 +15,7 @@ flags=(-std=c++17 -D_GNU_SOURCE -D_POSIX_C_SOURCE=200809L -D_XOPEN_SOURCE=700 -D
 clang++ "${flags[@]}" -c ps4/main.cpp -o "$work/obj/main.o"
 clang++ "${flags[@]}" -c src/core.cpp -o "$work/obj/core.o"
 clang++ "${flags[@]}" -c src/config_loader.cpp -o "$work/obj/config_loader.o"
+clang++ "${flags[@]}" -c src/catalog.cpp -o "$work/obj/catalog.o"
 clang++ "${flags[@]}" -c ps4/native_net.cpp -o "$work/obj/native_net.o"
 clang++ "${flags[@]}" -c ps4/diagnostics.cpp -o "$work/obj/diagnostics.o"
 clang++ "${flags[@]}" -c ps4/video_player.cpp -o "$work/obj/video_player.o"
@@ -22,7 +23,7 @@ clang++ "${flags[@]}" -c ps4/source_resolver.cpp -o "$work/obj/source_resolver.o
 python3 scripts/patch-graphics.py "$sdk/samples/_common/graphics.cpp" "$work/graphics-fixed.cpp"
 clang++ "${flags[@]}" -c "$work/graphics-fixed.cpp" -o "$work/obj/graphics.o"
 ld.lld -m elf_x86_64 -pie --script "$sdk/link.x" --eh-frame-hdr \
-  "$work/obj/main.o" "$work/obj/core.o" "$work/obj/config_loader.o" "$work/obj/graphics.o" "$work/obj/native_net.o" "$work/obj/diagnostics.o" "$work/obj/video_player.o" "$work/obj/source_resolver.o" \
+  "$work/obj/main.o" "$work/obj/core.o" "$work/obj/config_loader.o" "$work/obj/catalog.o" "$work/obj/graphics.o" "$work/obj/native_net.o" "$work/obj/diagnostics.o" "$work/obj/video_player.o" "$work/obj/source_resolver.o" \
   -L"$sdk/lib" -lc -lkernel -lc++ -lSceVideoOut -lScePad -lSceUserService -lSceSysmodule -lSceFreeType -lSceNet -lSceSsl -lSceHttp -lSceAvPlayer -lSceAudioOut \
   "$sdk/lib/crt1.o" -o "$work/app.elf"
 "$toolbin/create-fself" -in="$work/app.elf" -out="$work/app.oelf" \
@@ -45,7 +46,7 @@ contentid=IV0000-BREW20346_00-PLAYTORRIOPS4APP
 pkgtool="$toolbin/PkgTool.Core"
 "$pkgtool" sfo_new sce_sys/param.sfo
 "$pkgtool" sfo_setentry sce_sys/param.sfo APP_TYPE --type Integer --maxsize 4 --value 1
-"$pkgtool" sfo_setentry sce_sys/param.sfo APP_VER --type Utf8 --maxsize 8 --value 01.09
+"$pkgtool" sfo_setentry sce_sys/param.sfo APP_VER --type Utf8 --maxsize 8 --value 01.10
 "$pkgtool" sfo_setentry sce_sys/param.sfo ATTRIBUTE --type Integer --maxsize 4 --value 0
 "$pkgtool" sfo_setentry sce_sys/param.sfo CATEGORY --type Utf8 --maxsize 4 --value gd
 "$pkgtool" sfo_setentry sce_sys/param.sfo CONTENT_ID --type Utf8 --maxsize 48 --value "$contentid"
@@ -53,7 +54,7 @@ pkgtool="$toolbin/PkgTool.Core"
 "$pkgtool" sfo_setentry sce_sys/param.sfo SYSTEM_VER --type Integer --maxsize 4 --value 0
 "$pkgtool" sfo_setentry sce_sys/param.sfo TITLE --type Utf8 --maxsize 128 --value "PlayTorrio PS4 UI Test"
 "$pkgtool" sfo_setentry sce_sys/param.sfo TITLE_ID --type Utf8 --maxsize 12 --value "$titleid"
-"$pkgtool" sfo_setentry sce_sys/param.sfo VERSION --type Utf8 --maxsize 8 --value 01.09
+"$pkgtool" sfo_setentry sce_sys/param.sfo VERSION --type Utf8 --maxsize 8 --value 01.10
 files=("eboot.bin" "sce_sys/about/right.sprx" "sce_sys/param.sfo" "sce_sys/icon0.png" "assets/fonts/Gontserrat-Regular.ttf" "assets/fonts/OFL.txt")
 for f in sce_module/*; do if [[ -f "$f" ]]; then files+=("$f"); fi; done
 "$toolbin/create-gp4" -out pkg.gp4 --content-id="$contentid" --files "${files[*]}"
@@ -65,10 +66,11 @@ file "$OLDPWD/dist/PlayTorrio-PS4-GoldHEN-10.01-EXPERIMENTAL.pkg"
 
 # shadPS4 QtLauncher v397 no longer has Install Packages. Supply the
 # exact UNPACKED homebrew files, preserving /app0 relative paths.
-python3 - "$work/stage" "$OLDPWD/dist/PlayTorrio-PS4-shadPS4-extracted.zip" <<'PY'
+python3 - "$work/stage" "$OLDPWD/dist/PlayTorrio-PS4-shadPS4-extracted.zip" "$OLDPWD" <<'PY'
 import pathlib, sys, zipfile
 stage = pathlib.Path(sys.argv[1])
 dest = pathlib.Path(sys.argv[2])
+source = pathlib.Path(sys.argv[3])
 members = ["eboot.bin", "sce_sys/param.sfo", "sce_sys/icon0.png"]
 for member in members:
     if not (stage / member).is_file():
@@ -80,6 +82,10 @@ with zipfile.ZipFile(dest, "w", zipfile.ZIP_DEFLATED) as z:
         for f in paths:
             if f.is_file():
                 z.write(f, "BREW20346/" + f.relative_to(stage).as_posix())
+    for helper in ("HostTools/Load-Shows.cmd", "HostTools/Refresh-Catalog.ps1"):
+        target=source/helper
+        if not target.is_file(): raise SystemExit(f"Missing Windows TMDB companion tool: {target}")
+        z.write(target, helper)
 with zipfile.ZipFile(dest) as z:
     for required in ("BREW20346/eboot.bin", "BREW20346/sce_sys/param.sfo",
                      "BREW20346/assets/fonts/Gontserrat-Regular.ttf"):
