@@ -1,4 +1,8 @@
-# PlayTorrio PS4 — Seekable native HTTP video playback (v1.3.1)
+# PlayTorrio PS4 — Decoder stall diagnostics (v1.3.2)
+
+The previous build accepted a 2.43 GB seekable HTTPS video but rendered no frames. This build corrects the AvPlayer boolean return declarations, logs decoder callback/HTTP range activity and detects stalls even if the decoder reports active. It does not claim playback is fixed without a runtime frame test.
+
+---
 
 Titles on every Discover page now lazily resolve their IMDb ID when you select them. Redirect following is restricted to media HEAD and Range requests.
 

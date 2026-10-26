@@ -81,13 +81,17 @@ bool Player::prepareRemote(const std::string& url,std::string& error){
   cacheOffset_=0;
   cache_.assign(first.body.begin(),first.body.end());
   readFailureLogged_=false;
+  remoteReads_=0;
+  rangeRequests_=0;
   ps4diag::note("VIDEO_IO","PASS seekable media range, total bytes="+std::to_string(n));
   return true;
 }
 int Player::openRemote(void* ptr,const char* name){
   auto* self=static_cast<Player*>(ptr);
-  return self&&name&&std::strcmp(name,"/ptvremote.mp4")==0&&
-         !self->remoteUrl_.empty()&&self->remoteBytes_>0?0:-1;
+  const bool valid=self&&name&&std::strcmp(name,"/ptvremote.mp4")==0&&
+         !self->remoteUrl_.empty()&&self->remoteBytes_>0;
+  ps4diag::note("VIDEO_IO",valid?"PASS AvPlayer file opened":"FAIL AvPlayer file open");
+  return valid?0:-1;
 }
 int Player::closeRemote(void* ptr){
   return ptr?0:-1;
@@ -99,6 +103,8 @@ uint64_t Player::remoteSize(void* ptr){
 int Player::readRemote(void* ptr,uint8_t* out,uint64_t position,uint32_t length){
   auto* self=static_cast<Player*>(ptr);
   if(!self||!out||length==0||self->remoteUrl_.empty())return -1;
+  const uint64_t calls=++self->remoteReads_;
+  if(calls==1)ps4diag::note("VIDEO_IO","PASS first decoder read callback");
   std::lock_guard<std::mutex> lock(self->remoteMutex_);
   if(position>=self->remoteBytes_)return 0;
   const uint32_t want=(uint32_t)std::min(uint64_t(length),self->remoteBytes_-position);
@@ -128,6 +134,8 @@ int Player::readRemote(void* ptr,uint8_t* out,uint64_t position,uint32_t length)
       }
       self->cacheOffset_=start;
       self->cache_.assign(response.body.begin(),response.body.end());
+      const uint64_t count=++self->rangeRequests_;
+      if(count==1||count%32==0)ps4diag::note("VIDEO_IO","PASS CDN range chunks="+std::to_string(count));
     }
     const size_t into=(size_t)(offset-self->cacheOffset_);
     const uint32_t available=std::min((size_t)(want-copied),self->cache_.size()-into);
@@ -195,6 +203,8 @@ bool Player::start(const std::string& url,std::string& error){
   status_=Status::Opening;
   frames_=0;
   preferredTracks_=false;
+  lastProgressBucket_=-1;
+  loggedInvalidFrame_=false;
   startTime_=std::chrono::steady_clock::now();
   sceUserServiceGetInitialUser(&user_);
   audioRunning_=true;
@@ -240,13 +250,25 @@ void Player::audioLoop(){
 }
 bool Player::render(Scene2D& scene){
   if(!handle_||status_==Status::Failed||status_==Status::Paused)return false;
-  int active=sceAvPlayerIsActive(handle_);
-  if(!active){
-    if(status_==Status::Opening &&
-        std::chrono::steady_clock::now()-startTime_>std::chrono::seconds(35)){
+  // A decoder with no frames may still report Active. Never buffer forever.
+  const int elapsed=bufferingSeconds();
+  if(status_==Status::Opening){
+    if(elapsed>=60){
       status_=Status::Failed;
-      ps4diag::note("PLAYBACK","FAIL no decoded frames within 35 seconds");
+      ps4diag::note("PLAYBACK","FAIL no frames in 60s; reads="+
+        std::to_string(remoteReads_.load())+" CDN_ranges="+
+        std::to_string(rangeRequests_.load()));
+      return false;
     }
+    if(elapsed>=10&&elapsed/10!=lastProgressBucket_){
+      lastProgressBucket_=elapsed/10;
+      ps4diag::note("PLAYBACK","BUFFERING seconds="+std::to_string(elapsed)+
+        " reads="+std::to_string(remoteReads_.load())+
+        " CDN_ranges="+std::to_string(rangeRequests_.load()));
+    }
+  }
+  const bool active=sceAvPlayerIsActive(handle_);
+  if(!active){
     if(status_==Status::Playing){
       status_=Status::Ended;
       ps4diag::note("PLAYBACK","INFO video session became inactive after "+std::to_string(frames_)+" frames");
@@ -254,13 +276,20 @@ bool Player::render(Scene2D& scene){
     return false;
   }
   AvFrame frame={};
-  int got=sceAvPlayerGetVideoDataEx(handle_,&frame);
+  const bool got=sceAvPlayerGetVideoDataEx(handle_,&frame);
   if(got==0||!frame.data)return false;
   const auto& v=frame.details.video;
   const int w=(int)v.width,h=(int)v.height;
   int pitch=(int)v.pitch;
   if(pitch<w)pitch=w;
-  if(w<2||h<2||w>4096||h>2160||pitch>8192)return false;
+  if(w<2||h<2||w>4096||h>2160||pitch>8192){
+    if(!loggedInvalidFrame_){
+      loggedInvalidFrame_=true;
+      ps4diag::note("PLAYBACK","FAIL invalid frame dimensions="+
+        std::to_string(w)+"x"+std::to_string(h)+" pitch="+std::to_string(pitch));
+    }
+    return false;
+  }
   const uint8_t* yPlane=(const uint8_t*)frame.data;
   const uint8_t* uvPlane=yPlane+(size_t)pitch*h;
   // Letterboxed video at up to 1152x648, using direct framebuffer 2x2

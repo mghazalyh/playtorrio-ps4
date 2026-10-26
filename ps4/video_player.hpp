@@ -23,6 +23,11 @@ public:
   Status state()const{return status_.load();}
   uint64_t frames()const{return frames_;}
   int lastError()const{return last_error_;}
+  int bufferingSeconds()const {
+    if(status_!=Status::Opening)return 0;
+    return (int)std::chrono::duration_cast<std::chrono::seconds>(
+      std::chrono::steady_clock::now()-startTime_).count();
+  }
 private:
   static void* allocate(void*,uint32_t,uint32_t);
   static void deallocate(void*,void*);
@@ -47,5 +52,9 @@ private:
   std::vector<uint8_t> cache_;
   std::mutex remoteMutex_;
   bool readFailureLogged_=false;
+  std::atomic<uint64_t> remoteReads_{0};
+  std::atomic<uint64_t> rangeRequests_{0};
+  int lastProgressBucket_=-1;
+  bool loggedInvalidFrame_=false;
 };
 }

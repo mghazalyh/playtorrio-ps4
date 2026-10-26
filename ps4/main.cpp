@@ -787,11 +787,11 @@ int main(){
         txt(*screen,fonts,"PlayTorrio - PS4 hardware video",48,56,paper,3);
         txt(*screen,fonts,"X/Square: Pause   Circle: Back   Triangle: Hide UI",48,87,muted,1);
         if(player.state()==ps4video::Player::Status::Opening)
-          txt(*screen,fonts,"Buffering stream...",65,135,gold,2);
+          txt(*screen,fonts,"Buffering video... "+std::to_string(player.bufferingSeconds())+"s",65,135,gold,2);
         if(player.state()==ps4video::Player::Status::Ended)
           txt(*screen,fonts,"Stream ended. Circle to exit.",65,135,gold,2);
         if(player.state()==ps4video::Player::Status::Failed)
-          txt(*screen,fonts,"Hardware decoder error. Circle to exit.",65,135,gold,2);
+          txt(*screen,fonts,"No decoded video. Check logs; Circle to exit.",65,135,gold,2);
       }
       (void)frameDrawn;
     }else{

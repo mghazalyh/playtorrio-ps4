@@ -80,13 +80,13 @@ int32_t sceAvPlayerClose(AvHandle);
 int32_t sceAvPlayerStop(AvHandle);
 int32_t sceAvPlayerPause(AvHandle);
 int32_t sceAvPlayerResume(AvHandle);
-int32_t sceAvPlayerIsActive(AvHandle);
-int32_t sceAvPlayerGetVideoDataEx(AvHandle,AvFrame*);
+bool sceAvPlayerIsActive(AvHandle);
+bool sceAvPlayerGetVideoDataEx(AvHandle,AvFrame*);
 int32_t sceAvPlayerGetStreamInfo(AvHandle,uint32_t,AvStreamInfo*);
 int32_t sceAvPlayerStreamCount(AvHandle);
 int32_t sceAvPlayerEnableStream(AvHandle,uint32_t);
 int32_t sceAvPlayerDisableStream(AvHandle,uint32_t);
-int32_t sceAvPlayerGetAudioData(AvHandle,AvFrame*);
+bool sceAvPlayerGetAudioData(AvHandle,AvFrame*);
 }
 static_assert(sizeof(AvAllocCallbacks)==40,"AvPlayer allocator ABI");
 static_assert(sizeof(AvFrame)>=100,"AvPlayer frame ABI");
