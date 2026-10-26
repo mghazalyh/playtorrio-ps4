@@ -67,6 +67,8 @@ bool import_settings(const std::string& json,Settings& output,std::string& error
   if(!r.empty()&&r.find(' ')==std::string::npos&&r.find("..")==std::string::npos&&r.find('/')!=std::string::npos)s.github_repo=r;
   auto b=field(o,"githubBranch");if(b.empty())b=field(o,"github_branch");
   if(!b.empty()&&b.find(' ')==std::string::npos&&b.find("..")==std::string::npos)s.github_branch=b;
+  s.direct_stream_url=field(o,"directStreamUrl");
+  if(s.direct_stream_url.rfind("https://",0)!=0) s.direct_stream_url.clear();
   s.diagnostic_id=field(o,"diagnosticId");
   auto mode=field(o,"diagnosticType");
   if(mode=="movie"||mode=="series")s.diagnostic_type=mode;
