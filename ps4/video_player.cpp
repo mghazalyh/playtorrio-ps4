@@ -255,7 +255,11 @@ void Player::audioLoop(){
   sceAudioOutClose(port);
 }
 bool Player::render(Scene2D& scene){
-  if(!handle_||status_==Status::Failed||status_==Status::Paused)return false;
+  if(!handle_||status_==Status::Failed)return false;
+  if(status_==Status::Paused){
+    if(!rgbPixels_.empty())scene.BlitRgb32(rgbPixels_.data(),rgbX_,rgbY_,rgbW_,rgbH_);
+    return !rgbPixels_.empty();
+  }
   // A decoder with no frames may still report Active. Never buffer forever.
   const int elapsed=bufferingSeconds();
   if(status_==Status::Opening){
@@ -283,7 +287,10 @@ bool Player::render(Scene2D& scene){
   }
   AvFrame frame={};
   const bool got=sceAvPlayerGetVideoDataEx(handle_,&frame);
-  if(got==0||!frame.data)return false;
+  if(got==0||!frame.data){
+    if(!rgbPixels_.empty())scene.BlitRgb32(rgbPixels_.data(),rgbX_,rgbY_,rgbW_,rgbH_);
+    return !rgbPixels_.empty();
+  }
   const auto& v=frame.details.video;
   const int w=(int)v.width,h=(int)v.height;
   int pitch=(int)v.pitch;
