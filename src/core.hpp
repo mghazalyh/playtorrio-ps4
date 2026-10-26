@@ -10,6 +10,10 @@ struct Settings {
   std::string github_token;
   std::string github_repo = "mghazalyh/torriodb";
   std::string github_branch = "main";
+  std::string diagnostic_type = "movie";
+  std::string diagnostic_id;  // Example: tt1234567 or tt1234567:1:1.
+  int torbox_torrent_id = -1; // Optional existing TorBox torrent, no modifications.
+  int torbox_file_id = -1;
   bool subtitles_english = true;
   bool audio_english = true;
 };
