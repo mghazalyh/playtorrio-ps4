@@ -17,6 +17,7 @@
 #include <orbis/UserService.h>
 #include "graphics.h"
 #include "../src/core.hpp"
+#include "../src/config_loader.hpp"
 #include "diagnostics.hpp"
 #include "video_player.hpp"
 #include "source_resolver.hpp"
@@ -350,10 +351,10 @@ void footer(Scene2D& s,const Fonts& f,int tab,int focus){
 int main(){
   const bool logging=ps4diag::start_logging();
   ps4diag::note("BOOT","Entering native PS4 startup checks");
-  ptv::Settings settings;std::string parseError;
-  auto source=readConfig();
-  bool imported=!source.empty()&&ptv::import_settings(source,settings,parseError);
-  if(source.empty())parseError="Place settings.json in /data/playtorrio";
+  // Delay settings I/O until the UI is drawing frames. A malformed file or
+  // shadPS4 guest filesystem stall must not black-screen the whole app.
+  ptv::Settings settings;std::string parseError="Loading local settings...";
+  bool imported=false;
   scePadInit();
   OrbisUserServiceInitializeParams params={};
   params.priority=ORBIS_KERNEL_PRIO_FIFO_LOWEST;
@@ -393,6 +394,39 @@ int main(){
   std::mutex sourceMutex;
   std::string preparedUrl, preparedError;
   bool sourceReady=false;
+  std::atomic<bool> settingsBusy{false};
+  std::mutex settingsMutex;
+  ptv::SettingsFileResult pendingSettings;
+  bool settingsReady=false;
+  bool initialSettingsRequested=false;
+  auto requestSettings=[&](bool allowUsb){
+    if(settingsBusy.exchange(true))return;
+    ps4diag::note("SETTINGS","BEGIN deferred settings read (no secrets logged)");
+    std::thread([&,allowUsb](){
+      auto result=ptv::load_settings_file("/data/playtorrio/settings.json");
+      if(result.status==ptv::SettingsFileStatus::Missing && allowUsb){
+        ptv::Settings usbSettings;
+        std::string message;
+        if(importUsb(usbSettings,message)){
+          result.settings=std::move(usbSettings);
+          result.status=ptv::SettingsFileStatus::Loaded;
+          result.message="USB settings installed";
+        }
+      }
+      ps4diag::note("SETTINGS",std::string("END status=")+
+        ptv::settings_file_status_name(result.status)+
+        " bytes="+std::to_string(result.bytes)+
+        " addons="+std::to_string(result.ok()?result.settings.addons.size():0)+
+        " tmdb_set="+std::to_string(result.ok()&&!result.settings.tmdb_api_key.empty())+
+        " github_enabled="+std::to_string(result.ok()&&result.settings.github_sync_enabled));
+      {
+        std::lock_guard<std::mutex> lock(settingsMutex);
+        pendingSettings=std::move(result);
+        settingsReady=true;
+      }
+      settingsBusy.store(false);
+    }).detach();
+  };
   auto requestPlayback=[&](std::string mediaType,std::string mediaId){
     if(viewing||sourceBusy.exchange(true))return;
     preparedError.clear();
@@ -481,11 +515,8 @@ int main(){
       if(pressed&ORBIS_PAD_BUTTON_CIRCLE){tab=0;focus=0;}
       if(!running.load() && ((pressed&ORBIS_PAD_BUTTON_SQUARE && tab==4)||
          (pressed&ORBIS_PAD_BUTTON_CROSS && tab==4 && focus==0 && tabBeforeSelection==4))){
-        std::string result;
-        imported=importUsb(settings,result);
-        parseError=result;
-        ps4diag::note("IMPORT",imported?
-          "PASS local USB settings installed":"FAIL missing/invalid USB settings");
+        requestSettings(true);
+        parseError="Reloading settings in the background...";
       }
       if(pressed&ORBIS_PAD_BUTTON_CROSS && tab==1 && tabBeforeSelection==1){
         requestPlayback(focus==1?"series":"movie",settings.diagnostic_id);
@@ -503,6 +534,25 @@ int main(){
       }
       if(pressed&ORBIS_PAD_BUTTON_CROSS && tab==3 && tabBeforeSelection==3){
         requestPlayback(settings.diagnostic_type,settings.diagnostic_id);
+      }
+    }
+    if(frame==2 && !initialSettingsRequested){
+      initialSettingsRequested=true;
+      requestSettings(false);
+    }
+    {
+      std::lock_guard<std::mutex> lock(settingsMutex);
+      if(settingsReady){
+        if(pendingSettings.ok()){
+          settings=std::move(pendingSettings.settings);
+          imported=true;
+          parseError="Local settings loaded";
+        }else{
+          // An invalid file never replaces the last working configuration.
+          // The app remains navigable for a manual reload after editing.
+          parseError=pendingSettings.message;
+        }
+        settingsReady=false;
       }
     }
     ps4diag::Summary snapshot;
