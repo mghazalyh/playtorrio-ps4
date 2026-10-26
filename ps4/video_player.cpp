@@ -4,6 +4,8 @@
 #include <cstring>
 #include <algorithm>
 #include <vector>
+#include <chrono>
+#include <cctype>
 #include <orbis/AudioOut.h>
 #include <orbis/Sysmodule.h>
 #include <orbis/UserService.h>
@@ -52,6 +54,8 @@ bool Player::start(const std::string& url,std::string& error){
   ps4diag::note("PLAYBACK","PASS AvPlayer accepted video stream (URL excluded)");
   status_=Status::Opening;
   frames_=0;
+  preferredTracks_=false;
+  startTime_=std::chrono::steady_clock::now();
   sceUserServiceGetInitialUser(&user_);
   audioRunning_=true;
   audioThread_=std::thread([this](){audioLoop();});
@@ -98,6 +102,11 @@ bool Player::render(Scene2D& scene){
   if(!handle_||status_==Status::Failed||status_==Status::Paused)return false;
   int active=sceAvPlayerIsActive(handle_);
   if(!active){
+    if(status_==Status::Opening &&
+        std::chrono::steady_clock::now()-startTime_>std::chrono::seconds(35)){
+      status_=Status::Failed;
+      ps4diag::note("PLAYBACK","FAIL no decoded frames within 35 seconds");
+    }
     if(status_==Status::Playing){
       status_=Status::Ended;
       ps4diag::note("PLAYBACK","INFO video session became inactive after "+std::to_string(frames_)+" frames");
@@ -138,6 +147,39 @@ bool Player::render(Scene2D& scene){
     }
   }
   ++frames_;
+  if(!preferredTracks_){
+    preferredTracks_=true;
+    // Prefer language metadata only when explicitly English; otherwise
+    // leave the decoder's default selection untouched.
+    int n=sceAvPlayerStreamCount(handle_);
+    int englishAudio=-1,englishText=-1;
+    if(n>0&&n<80){
+      for(int i=0;i<n;i++){
+        AvStreamInfo info={};
+        if(sceAvPlayerGetStreamInfo(handle_,i,&info)<0)continue;
+        const uint8_t* lang=info.type==1?info.details.audio.language:
+                           info.type==2?info.details.video.language:nullptr;
+        if(!lang)continue;
+        bool en=(std::tolower(lang[0])=='e'&&
+                 std::tolower(lang[1])=='n');
+        if(en&&info.type==1&&englishAudio<0)englishAudio=i;
+        if(en&&info.type==2&&englishText<0)englishText=i;
+      }
+      if(englishAudio>=0){
+        for(int i=0;i<n;i++){
+          AvStreamInfo info={};
+          if(sceAvPlayerGetStreamInfo(handle_,i,&info)<0||info.type!=1)continue;
+          if(i==englishAudio)sceAvPlayerEnableStream(handle_,i);
+          else sceAvPlayerDisableStream(handle_,i);
+        }
+        ps4diag::note("AUDIO","PASS selected embedded English-labeled stream");
+      }else ps4diag::note("AUDIO","INFO no English-labeled stream; retaining default");
+      if(englishText>=0){
+        sceAvPlayerEnableStream(handle_,englishText);
+        ps4diag::note("SUBTITLES","INFO enabled English embedded text stream; rendering not guaranteed");
+      }else ps4diag::note("SUBTITLES","INFO no English embedded text stream enumerated");
+    }
+  }
   if(status_==Status::Opening){
     status_=Status::Playing;
     ps4diag::note("PLAYBACK","PASS first decoded video frame rendered");
@@ -155,6 +197,9 @@ void Player::pauseToggle(){
   }
 }
 void Player::close(){
+  if(handle_){
+    ps4diag::note("PLAYBACK","STOP decoded frames="+std::to_string(frames_));
+  }
   audioRunning_=false;
   if(audioThread_.joinable())audioThread_.join();
   if(handle_){
