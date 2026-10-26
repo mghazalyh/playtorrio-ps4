@@ -386,6 +386,28 @@ bool writeLocalTitles(const std::vector<ptvcatalog::Item>& saved){
   ::chmod("/data/playtorrio/local-library.json",0600);
   return true;
 }
+bool loadFilterPreferences(ptvdiscover::Filters& filters){
+ std::ifstream in("/data/playtorrio/discover-filters.json",std::ios::binary);
+ if(!in.good())return false;
+ std::string raw;char buffer[512];
+ while(in.good()&&raw.size()<=8192){
+   in.read(buffer,sizeof(buffer));raw.append(buffer,(size_t)in.gcount());
+ }
+ return ptvdiscover::load_preferences(raw,filters);
+}
+bool saveFilterPreferences(const ptvdiscover::Filters& filters){
+ if(!ptvdiscover::valid(filters)||::mkdir("/data/playtorrio",0700)<0&&errno!=EEXIST)return false;
+ const std::string content=ptvdiscover::save_preferences(filters);
+ const char* tmp="/data/playtorrio/discover-filters.json.tmp";
+ std::ofstream file(tmp,std::ios::binary|std::ios::trunc);
+ if(!file.good())return false;
+ file.write(content.data(),content.size());file.close();
+ if(!file.good()||::rename(tmp,"/data/playtorrio/discover-filters.json")!=0){
+   ::remove(tmp);return false;
+ }
+ ::chmod("/data/playtorrio/discover-filters.json",0600);return true;
+}
+
 void home(Scene2D& s,const Fonts& f,ps4art::Cache& art,int cardFocus,
           const ps4diag::Summary& diag,const ptvcatalog::Catalog& catalog){
   if(!catalog.loaded){
@@ -1036,11 +1058,13 @@ int main(){
           if(pressed&ORBIS_PAD_BUTTON_CROSS){
             if(filterFocus==1){keyboardFocus=0;panel=4;}
             else if(filterFocus==7){
+              saveFilterPreferences(filters);
               requestAdvanced(1);
               if(browseBusy.load()){panel=0;tab=1;catalogPage=0;focus=0;}
             }else if(filterFocus==8){
               filters=ptvdiscover::Filters();
               filters.series=catalogTv;
+              saveFilterPreferences(filters);
               browseActive=false;catalogPage=0;focus=0;
               browseMessage="Filters cleared; showing trending titles";
               panel=0;
@@ -1220,6 +1244,7 @@ int main(){
     if(frame==14&&!localLoaded){
       localLoaded=true;
       readLocalTitles(localSaved);
+      loadFilterPreferences(filters);
       ps4diag::note("LIBRARY","Local-only saved titles="+std::to_string(localSaved.size()));
     }
     if(frame==2 && !initialSettingsRequested){
