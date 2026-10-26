@@ -469,6 +469,7 @@ int main(){
   ptvcatalog::Catalog pendingCatalog;
   std::mutex catalogMutex;
   std::atomic<bool> catalogBusy{false};
+  bool catalogReady=false;
   std::atomic<bool> nativeBusy{false};
   bool nativeCatalogActive=false;
   bool pendingNative=false;
@@ -489,7 +490,6 @@ int main(){
       nativeBusy.store(false);
     }).detach();
   };
-  bool catalogReady=false;
   bool catalogTv=true;
   int catalogPage=0;
   auto requestCatalog=[&](){
