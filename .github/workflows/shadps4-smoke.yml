@@ -47,7 +47,11 @@ jobs:
           mkdir -p work/emulator
           unzip -q work/shadps4.zip -d work/emulator || report BLOCKED 'Emulator archive extraction failed'
           find work/emulator -maxdepth 4 -type f -printf '%p %s bytes\n' > logs/emulator-files.txt
-          emu="$(find work/emulator -maxdepth 4 -type f \( -name 'shadPS4' -o -name 'shadps4' \) -print -quit)"
+          cat logs/emulator-files.txt
+          emu="$(find work/emulator -maxdepth 5 -type f -iname '*shadps4*' ! -name '*.so*' -print -quit)"
+          if [[ -z "$emu" ]]; then
+            emu="$(find work/emulator -maxdepth 5 -type f -exec file {} \; | awk -F: '/ELF 64-bit.*executable|ELF 64-bit.*shared object/ {print $1;exit}')"
+          fi
           test -n "$emu" || report BLOCKED 'Emulator executable not found'
           chmod +x "$emu"
           "$emu" --help > logs/emulator-help.txt 2>&1
