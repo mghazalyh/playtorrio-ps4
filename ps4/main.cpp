@@ -567,6 +567,29 @@ int main(){
   std::atomic<bool> running{false};
   bool tested=false;
   ps4video::Player player;
+  ps4art::Cache posters;
+  int panel=0; // 0 browse, 1 title details/episodes, 2 source picker
+  ptvcatalog::Item selectedItem;
+  std::string detailImdb,detailMessage;
+  std::vector<ptvdetail::Season> seasons;
+  std::vector<ptvdetail::Episode> episodes;
+  int seasonFocus=0,episodeFocus=0,sourceFocus=0;
+  ps4source::Choices sourceChoices;
+  struct DetailResult {
+    std::string imdb;
+    std::vector<ptvdetail::Season> seasons;
+    std::vector<ptvdetail::Episode> episodes;
+    bool seasonOnly=false;
+    std::string error;
+  };
+  std::mutex detailMutex;
+  DetailResult pendingDetail;
+  bool detailReady=false;
+  std::atomic<bool> detailBusy{false};
+  std::mutex sourcesMutex;
+  ps4source::Choices pendingChoices;
+  bool sourcesReady=false;
+  std::atomic<bool> sourcesBusy{false};
   bool viewing=false;
   bool overlay=true;
   std::atomic<bool> sourceBusy{false};
@@ -690,6 +713,88 @@ int main(){
       sourceBusy.store(false);
     }).detach();
   };
+
+  auto openDetails=[&](const ptvcatalog::Item& item){
+    if(viewing||detailBusy.exchange(true))return;
+    selectedItem=item;detailImdb=item.imdb_id;
+    seasons.clear();episodes.clear();sourceChoices={};
+    seasonFocus=0;episodeFocus=0;sourceFocus=0;panel=1;
+    detailMessage="Loading details...";
+    const auto config=settings;
+    std::thread([&,item,config](){
+      DetailResult result;
+      try{
+        result.imdb=item.imdb_id.empty()?
+          ptvcatalog::imdb_for_tmdb(config,item.series,item.tmdb_id):item.imdb_id;
+        if(item.series){
+          if(!ptvcatalog::fetch_seasons(config,item.tmdb_id,result.seasons))
+            result.error="Could not load TV seasons from TMDB";
+          else if(!result.seasons.empty() &&
+                  !ptvcatalog::fetch_episodes(config,item.tmdb_id,
+                    result.seasons.front().number,result.episodes))
+            result.error="Could not load episodes from TMDB";
+        }
+        if(result.imdb.empty())result.error="IMDb identifier unavailable for source lookup";
+      }catch(...){result.error="Unexpected TMDB details error";}
+      {std::lock_guard<std::mutex> lock(detailMutex);
+       pendingDetail=std::move(result);detailReady=true;}
+      detailBusy.store(false);
+    }).detach();
+  };
+  auto chooseSeason=[&](int focusSeason){
+    if(focusSeason<0||focusSeason>=(int)seasons.size()||
+       detailBusy.exchange(true))return;
+    seasonFocus=focusSeason;episodeFocus=0;
+    episodes.clear();detailMessage="Loading season episodes...";
+    const auto config=settings;
+    const int tmdbId=selectedItem.tmdb_id;
+    const int season=seasons[seasonFocus].number;
+    std::thread([&,config,tmdbId,season](){
+      DetailResult result;result.seasonOnly=true;
+      try{
+        if(!ptvcatalog::fetch_episodes(config,tmdbId,season,result.episodes))
+          result.error="Could not load this season from TMDB";
+      }catch(...){result.error="Episode network error";}
+      {std::lock_guard<std::mutex> lock(detailMutex);
+       pendingDetail=std::move(result);detailReady=true;}
+      detailBusy.store(false);
+    }).detach();
+  };
+  auto openSources=[&](const std::string& videoId){
+    if(videoId.empty()){detailMessage="No IMDb ID for source lookup";return;}
+    if(sourcesBusy.exchange(true))return;
+    panel=2;sourceFocus=0;sourceChoices={};detailMessage.clear();
+    const auto config=settings;
+    const auto type=selectedItem.series?"series":"movie";
+    std::thread([&,config,type,videoId](){
+      ps4source::Choices result;
+      try{result=ps4source::list_sources(config,type,videoId);}
+      catch(...){result.error="Source lookup failed";}
+      {std::lock_guard<std::mutex> lock(sourcesMutex);
+       pendingChoices=std::move(result);sourcesReady=true;}
+      sourcesBusy.store(false);
+    }).detach();
+  };
+  auto playSelected=[&](){
+    if(viewing||sourceBusy.exchange(true))return;
+    if(sourceFocus<0||sourceFocus>=(int)sourceChoices.entries.size()){
+      sourceBusy.store(false);return;
+    }
+    const auto config=settings;
+    const auto candidate=sourceChoices.entries[sourceFocus];
+    detailMessage="Preparing selected source...";
+    ps4diag::note("CONTROL","User chose a source from stream picker");
+    std::thread([&,config,candidate](){
+      ps4source::Selection resolved;
+      try{resolved=ps4source::resolve_selected(config,candidate);}
+      catch(...){resolved.reason="Selected source resolver failed";}
+      {std::lock_guard<std::mutex> lock(sourceMutex);
+       preparedUrl=std::move(resolved.url);
+       preparedError=resolved.reason;
+       sourceReady=true;}
+      sourceBusy.store(false);
+    }).detach();
+  };
   uint32_t previous=0;
   ps4diag::note("BOOT","PASS entered main PS4 render loop");
   while(true){
@@ -705,6 +810,39 @@ int main(){
           player.pauseToggle();overlay=true;
         }else if(pressed&ORBIS_PAD_BUTTON_TRIANGLE){
           overlay=!overlay;
+        }
+        pressed=0;
+      }
+      // Title and source panels have their own focus; no global tab movement,
+      // background catalog refresh or diagnostic trigger steals a button.
+      if(!viewing&&panel==1){
+        if(pressed&ORBIS_PAD_BUTTON_CIRCLE){panel=0;detailMessage.clear();}
+        else if(selectedItem.series){
+          if(pressed&ORBIS_PAD_BUTTON_L2 && !seasons.empty())
+            chooseSeason((seasonFocus+(int)seasons.size()-1)%seasons.size());
+          if(pressed&ORBIS_PAD_BUTTON_R2 && !seasons.empty())
+            chooseSeason((seasonFocus+1)%seasons.size());
+          if(!episodes.empty()){
+            if(pressed&ORBIS_PAD_BUTTON_DOWN)episodeFocus=(episodeFocus+1)%episodes.size();
+            if(pressed&ORBIS_PAD_BUTTON_UP)episodeFocus=(episodeFocus+(int)episodes.size()-1)%episodes.size();
+            if(pressed&ORBIS_PAD_BUTTON_CROSS&&!detailBusy.load()){
+              const auto& episode=episodes[episodeFocus];
+              openSources(ptvdetail::stremio_episode_id(
+                detailImdb,episode.season,episode.number));
+            }
+          }
+        }else if(pressed&ORBIS_PAD_BUTTON_CROSS && !detailBusy.load())
+          openSources(detailImdb);
+        pressed=0;
+      }else if(!viewing&&panel==2){
+        const int count=(int)sourceChoices.entries.size();
+        if(pressed&ORBIS_PAD_BUTTON_CIRCLE){panel=1;detailMessage.clear();}
+        else if(count>0){
+          if(pressed&ORBIS_PAD_BUTTON_DOWN)sourceFocus=(sourceFocus+1)%count;
+          if(pressed&ORBIS_PAD_BUTTON_UP)sourceFocus=(sourceFocus+count-1)%count;
+          if(pressed&ORBIS_PAD_BUTTON_R2)sourceFocus=std::min(count-1,(sourceFocus/7+1)*7);
+          if(pressed&ORBIS_PAD_BUTTON_L2)sourceFocus=std::max(0,(sourceFocus/7-1)*7);
+          if(pressed&ORBIS_PAD_BUTTON_CROSS&&!sourcesBusy.load())playSelected();
         }
         pressed=0;
       }
@@ -739,12 +877,8 @@ int main(){
         if(pressed&ORBIS_PAD_BUTTON_UP)focus=(focus+6)%12;
         if(pressed&ORBIS_PAD_BUTTON_CROSS && catalog.loaded){
           const bool isTv=focus<6;
-          catalogTv=isTv;
-          catalogPage=0;
-          // Selecting a real show opens Discover with that item highlighted.
-          // Playback is initiated from Discover with X.
-          focus=focus%6;
-          tab=1;
+          const auto& items=isTv?catalog.tv:catalog.movies;
+          if(focus%6<(int)items.size())openDetails(items[focus%6]);
         }else if(pressed&ORBIS_PAD_BUTTON_CROSS){
           if(focus==8){
             if(!running.exchange(true)){
@@ -795,12 +929,7 @@ int main(){
           const int index=catalogPage*6+focus;
           if(index>=0 && index<(int)list.size()){
             const auto& item=list[index];
-            // Load missing IMDb identifiers on selection, without requiring
-            // a Windows catalog refresh. Stremio episodes use season 1 episode 1.
-            const auto mediaId=item.imdb_id.empty()?
-              "tmdb:"+std::to_string(item.tmdb_id):
-              (item.series?item.imdb_id+":1:1":item.imdb_id);
-            requestPlayback(item.series?"series":"movie",mediaId);
+            openDetails(item);
           }
         }else requestPlayback(settings.diagnostic_type,settings.diagnostic_id);
       }
@@ -861,6 +990,29 @@ int main(){
         settingsReady=false;
       }
     }
+    // Publish native season/episode and source results only on the main thread.
+    {std::lock_guard<std::mutex> lock(detailMutex);
+      if(detailReady){
+        if(!pendingDetail.seasonOnly){
+          detailImdb=std::move(pendingDetail.imdb);
+          seasons=std::move(pendingDetail.seasons);
+        }
+        episodes=std::move(pendingDetail.episodes);
+        episodeFocus=0;
+        detailMessage=std::move(pendingDetail.error);
+        ps4diag::note("DETAIL",std::string("Loaded seasons=")+
+          std::to_string(seasons.size())+" episodes="+std::to_string(episodes.size())+
+          " imdb="+std::to_string(!detailImdb.empty()));
+        detailReady=false;
+      }
+    }
+    {std::lock_guard<std::mutex> lock(sourcesMutex);
+      if(sourcesReady){
+        sourceChoices=std::move(pendingChoices);
+        detailMessage=sourceChoices.error;
+        sourcesReady=false;
+      }
+    }
     ps4diag::Summary snapshot;
     bool completed=false;
     {
@@ -911,15 +1063,26 @@ int main(){
       // Always paint the complete background, including a fresh initial
       // frame. Never reuse uninitialized video-out memory between flips.
       screen->FrameBufferFill(bg);
-      if(tab==0)home(*screen,fonts,focus,snapshot,catalog);
-      else section(*screen,fonts,tab,settings,imported,focus,parseError,snapshot,catalog,catalogTv,catalogPage);
+      if(panel==1){
+        detailsPage(*screen,fonts,posters,selectedItem,seasons,episodes,seasonFocus,
+                    episodeFocus,episodeFocus/6,detailBusy.load(),detailMessage);
+      }else if(panel==2){
+        sourcePage(*screen,fonts,selectedItem,sourceChoices,sourceFocus,sourceFocus/7,
+                   sourcesBusy.load()||sourceBusy.load(),detailMessage);
+      }else{
+        if(tab==0)home(*screen,fonts,posters,focus,snapshot,catalog);
+        else section(*screen,fonts,tab,settings,imported,focus,parseError,snapshot,
+                     catalog,catalogTv,catalogPage,posters);
+      }
       nav(*screen,fonts,tab);
-      diagnosticBand(*screen,fonts,snapshot,completed,logging,running.load());
-      footer(*screen,fonts,tab,focus);
+      if(!panel){
+        diagnosticBand(*screen,fonts,snapshot,completed,logging,running.load());
+        footer(*screen,fonts,tab,focus);
+      }
       if(sourceBusy.load()){
         round(*screen,240,275,800,100,12,{32,30,47});
-        txt(*screen,fonts,"Searching Torrentio / TorBox for a playable stream...",269,335,paper,2);
-      }else if(!parseError.empty()){
+        txt(*screen,fonts,"Preparing selected playback source...",269,335,paper,2);
+      }else if(!panel&&!parseError.empty()){
         txt(*screen,fonts,cut(parseError,78),65,641,gold,0);
       }
     }
