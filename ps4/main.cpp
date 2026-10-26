@@ -24,6 +24,9 @@
 #include "source_resolver.hpp"
 #include "catalog_online.hpp"
 #include "poster_cache.hpp"
+#include "advanced_discover.hpp"
+#include "../src/advanced_discover.hpp"
+#include "../src/local_library.hpp"
 #include "../src/show_details.hpp"
 
 std::stringstream debugLogStream;
@@ -202,7 +205,9 @@ void artworkCard(Scene2D& scene,const Fonts& fonts,ps4art::Cache& art,
 void detailsPage(Scene2D& s,const Fonts& f,ps4art::Cache& art,
     const ptvcatalog::Item& item,const std::vector<ptvdetail::Season>& seasons,
     const std::vector<ptvdetail::Episode>& episodes,int seasonPos,int episodePos,
-    int episodePage,bool loading,const std::string& error){
+    int episodePage,bool loading,const std::string& error,
+    const std::vector<ptvcatalog::Item>& related,bool showRelated,int relatedFocus,
+    bool saved){
   rect(s,0,76,1280,607,{10,13,24});
   txt(s,f,item.series?"SERIES / EPISODES":"MOVIE / DETAILS",56,121,purple,1);
   artworkCard(s,f,art,item,57,153,223,323,false,false);
@@ -214,7 +219,15 @@ void detailsPage(Scene2D& s,const Fonts& f,ps4art::Cache& art,
   if(item.overview.size()>186)txt(s,f,cut(item.overview.substr(186),93),322,304,muted,1);
   if(loading)txt(s,f,"Fetching seasons, episodes or streams...",326,349,gold,1);
   else if(!error.empty())txt(s,f,cut(error,86),327,345,gold,1);
-  if(!item.series){
+  if(showRelated){
+    txt(s,f,"RECOMMENDED & SIMILAR  /  Verified TMDB",322,371,paper,2);
+    if(related.empty())txt(s,f,"No recommendations from TMDB for this title",325,455,muted,1);
+    for(int i=0;i<6&&i<(int)related.size();i++){
+      const auto& rel=related[i];
+      artworkCard(s,f,art,rel,324+i*147,402,133,191,i==relatedFocus);
+    }
+    txt(s,f,"LEFT/RIGHT choose  X open related title   L1 Episodes/Play",324,626,muted,0);
+  }else if(!item.series){
     round(s,320,393,570,96,16,{56,39,89});
     txt(s,f,"CHOOSE STREAM SOURCE",349,445,paper,3);
     txt(s,f,"Press X to compare available sources",323,538,muted,1);
@@ -244,7 +257,9 @@ void detailsPage(Scene2D& s,const Fonts& f,ps4art::Cache& art,
     txt(s,f,std::to_string(episodes.size())+" episodes  /  page "+
         std::to_string(episodePage+1),1028,453,green,0);
   }
-  txt(s,f,"Circle: Back to browsing",70,580,muted,1);
+  txt(s,f,std::string("SQUARE: ")+(saved?"Remove from My List":"Save to My List"),
+      67,610,saved?green:gold,1);
+  txt(s,f,"L1: Episodes / Play    R1: Related titles    Circle: Back",65,647,muted,0);
 }
 std::string sourceLabel(const ptv::Stream& stream){
   std::string text=stream.name.empty()?stream.title:stream.name+"  "+stream.title;
@@ -282,6 +297,92 @@ void sourcePage(Scene2D& s,const Fonts& f,const ptvcatalog::Item& item,
     txt(s,f,cut(error,111),61,645,gold,0);
   txt(s,f,"UP / DOWN: source   L2/R2: page   X: play   Circle: episodes/details",
       62,671,muted,0);
+}
+
+const char* const COUNTRY_CODES[]={"","US","GB","CA","AU","IN","JP","KR","FR","DE",
+  "ES","IT","BR","MX","CN","TR","TH","ID","PH","SE","NO","DK","ZA"};
+const char* const COUNTRY_NAMES[]={"Any","United States","United Kingdom","Canada","Australia",
+  "India","Japan","South Korea","France","Germany","Spain","Italy","Brazil","Mexico",
+  "China","Turkey","Thailand","Indonesia","Philippines","Sweden","Norway","Denmark",
+  "South Africa"};
+const char* const LANG_CODES[]={"","en","es","fr","de","it","ja","ko","zh","hi","ta",
+  "te","ar","pt","tr","th","id","tl","sv","no","da","ru"};
+const char* const LANG_NAMES[]={"Any","English","Spanish","French","German","Italian",
+  "Japanese","Korean","Chinese","Hindi","Tamil","Telugu","Arabic","Portuguese","Turkish",
+  "Thai","Indonesian","Filipino","Swedish","Norwegian","Danish","Russian"};
+const char* const SORT_CODES[]={"popularity.desc","vote_average.desc","vote_count.desc"};
+const char* const SORT_NAMES[]={"Most popular","Top rated","Most reviewed"};
+template<size_t N>int matchIndex(const std::string& v,const char* const (&values)[N]){
+  for(size_t i=0;i<N;i++)if(v==values[i])return (int)i;return 0;
+}
+template<size_t N>std::string cycle(const std::string& v,int delta,const char* const (&values)[N]){
+  int i=matchIndex(v,values);
+  return values[(i+delta+(int)N)%(int)N];
+}
+std::string shownYear(int year){return year?std::to_string(year):"Any year";}
+void discoverFiltersPage(Scene2D& s,const Fonts& f,const ptvdiscover::Filters& q,
+                         int selected,bool working,const std::string& message){
+  rect(s,0,76,1280,608,{9,13,23});
+  txt(s,f,"ADVANCED DISCOVER",52,127,paper,4);
+  txt(s,f,"From PlayTorrio Windows / iOS v1.1.7   |   TMDB native queries",53,160,muted,1);
+  const char* labels[]={"Content type","Title contains (optional)","From year","To year",
+    "Country of origin","Original language","Sort results","APPLY FILTERS","CLEAR FILTERS"};
+  const std::string values[]={
+    q.series?"TV SERIES":"MOVIES",q.title.empty()?"Any title":cut(q.title,48),
+    shownYear(q.from_year),shownYear(q.to_year),
+    COUNTRY_NAMES[matchIndex(q.country,COUNTRY_CODES)],
+    LANG_NAMES[matchIndex(q.language,LANG_CODES)],
+    SORT_NAMES[matchIndex(q.sort,SORT_CODES)],"RUN SEARCH","RESET"
+  };
+  for(int i=0;i<9;i++){
+    const int y=177+i*49;
+    round(s,53,y,1174,43,8,i==selected?C{69,49,104}:card);
+    if(i==selected)rect(s,55,y+8,4,27,gold);
+    txt(s,f,labels[i],77,y+28,i==selected?paper:muted,1);
+    txt(s,f,cut(values[i],51),704,y+28,i==selected?paper:green,1);
+  }
+  txt(s,f,"Up/Down: field   Left/Right: value/year   X: edit/apply   Circle: back",55,651,muted,0);
+  if(working)txt(s,f,"TMDB search in progress...",65,674,gold,0);
+  else if(!message.empty())txt(s,f,cut(message,80),65,674,gold,0);
+}
+void filterKeyboard(Scene2D& s,const Fonts& f,const std::string& query,int focus){
+  rect(s,0,76,1280,608,{9,13,23});
+  txt(s,f,"SEARCH MOVIES & SHOWS",53,126,paper,4);
+  round(s,52,160,1176,64,13,{30,36,54});
+  txt(s,f,cut(query,58),69,204,paper,2);
+  txt(s,f,"Use D-Pad to type a title (no TMDB request until you apply filters)",56,265,muted,1);
+  const std::string keys="ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 -";
+  for(int i=0;i<(int)keys.size();i++){
+    const int x=66+i%10*113,y=289+i/10*70;
+    round(s,x,y,103,60,10,i==focus?purple:card);
+    txt(s,f,std::string(1,keys[i]),x+37,y+39,paper,3);
+  }
+  txt(s,f,"X: type    Square: delete    Triangle: done    Circle: cancel keyboard",55,641,muted,1);
+}
+bool readLocalTitles(std::vector<ptvcatalog::Item>& saved){
+  std::ifstream input("/data/playtorrio/local-library.json",std::ios::binary);
+  if(!input.good())return false;
+  std::string body;
+  char chunk[2048];
+  while(input.good()&&body.size()<=128*1024){
+    input.read(chunk,sizeof(chunk));
+    body.append(chunk,(size_t)input.gcount());
+  }
+  return ptvlocal::decode(body,saved);
+}
+bool writeLocalTitles(const std::vector<ptvcatalog::Item>& saved){
+  if(::mkdir("/data/playtorrio",0700)<0&&errno!=EEXIST)return false;
+  const std::string body=ptvlocal::encode(saved);
+  if(body.size()>128*1024)return false;
+  const char* temp="/data/playtorrio/local-library.json.tmp";
+  std::ofstream out(temp,std::ios::binary|std::ios::trunc);
+  if(!out.good())return false;
+  out.write(body.data(),body.size());out.close();
+  if(!out.good()||::rename(temp,"/data/playtorrio/local-library.json")!=0){
+    ::remove(temp);return false;
+  }
+  ::chmod("/data/playtorrio/local-library.json",0600);
+  return true;
 }
 void home(Scene2D& s,const Fonts& f,ps4art::Cache& art,int cardFocus,
           const ps4diag::Summary& diag,const ptvcatalog::Catalog& catalog){
@@ -333,14 +434,16 @@ void infoBox(Scene2D& s,const Fonts& f,int y,const std::string& name,
 void section(Scene2D& s,const Fonts& f,int tab,const ptv::Settings& cfg,
              bool loaded,int selection,const std::string& error,
              const ps4diag::Summary& diag,const ptvcatalog::Catalog& catalog,
-             bool tvMode,int page,ps4art::Cache& art){
+             bool tvMode,int page,ps4art::Cache& art,
+             const std::vector<ptvcatalog::Item>& localSaved,int savedPage,
+             bool advancedActive){
   // Six complete, compact rows on a 720p television (was three).
   const int rows[]={173,255,337,419,501,583};
   if(tab==1){
     if(catalog.loaded){
       const auto& items=tvMode?catalog.tv:catalog.movies;
       heading(s,f,tvMode?"Discover  /  TV SERIES":"Discover  /  MOVIES",
-        "LEFT / RIGHT: type     L2 / R2: page     X: details");
+        advancedActive?"ADVANCED RESULTS   |   SQUARE: filters   L2/R2: more":"LEFT / RIGHT: type   SQUARE: advanced   L2/R2: page");
       for(int j=0;j<6;j++){
         const int index=page*6+j;
         if(index>=(int)items.size())break;
@@ -376,11 +479,20 @@ void section(Scene2D& s,const Fonts& f,int tab,const ptv::Settings& cfg,
     }
   }else if(tab==2){
     if(!cfg.github_sync_enabled){
-      heading(s,f,"My List","GitHub cloud library synchronization is paused");
-      infoBox(s,f,rows[0],"GitHub sync","Disabled by your local settings.json","OFF",selection==0);
-      infoBox(s,f,rows[1],"Your current library","The PS4 will not contact your GitHub repository","No sync",selection==1);
-      infoBox(s,f,rows[2],"Change later","Set githubSyncEnabled to true when ready","Optional",selection==2);
-      infoBox(s,f,rows[3],"Movies & TV","Discover from TMDB and configured Stremio addons","Available",selection==3);
+      heading(s,f,"My List / Saved on this PS4",
+        "Local-only saved titles, never synced to GitHub   |   X details / Square remove");
+      for(int i=0;i<6;i++){
+        const int index=savedPage*6+i;
+        if(index>=(int)localSaved.size())break;
+        const auto& item=localSaved[index];
+        infoBox(s,f,rows[i],item.title,
+          item.series?"TV series   /   TMDB title metadata":"Movie   /   TMDB title metadata",
+          item.year,i==selection);
+      }
+      if(localSaved.empty())infoBox(s,f,rows[0],"No saved titles yet",
+         "On any movie or show details page press SQUARE to save it","Local only",false);
+      txt(s,f,std::to_string(localSaved.size())+" saved titles  /  Page "+
+            std::to_string(savedPage+1),974,160,green,0);
       return;
     }
     heading(s,f,"My List","Live read from your private GitHub watchlist");
