@@ -8,7 +8,7 @@
 **GitHub repository:** https://github.com/mghazalyh/playtorrio-ps4  
 **Default branch:** main, public.  
 **Latest implemented feature commit before these handover files:** a887b6c710373c5c374b6eba6d3e9b9e8c594526 (codec-aware source preference, v1.3.3).  
-**Latest candidate build:** ps4-native-playback-1.3.4 (CI/release requires verification before claiming PASS); latest user-tested release: v1.3.3. Previous successful feature CI: https://github.com/mghazalyh/playtorrio-ps4/actions/runs/40375602957.  
+**Latest published build:** ps4-native-playback-1.3.4 (CI run 40380405543 PASS, ZIP and PKG present). Last user-tested build v1.3.3; v1.3.4 still needs emulator verification.  
 **CI run:** https://github.com/mghazalyh/playtorrio-ps4/actions/runs/40375602957 — completed successfully: portable C++ tests, OpenOrbis cross-compilation, experimental PS4 package and emulator ZIP validation.  
 **User's most recent actual emulator playback test:** **v1.3.3**. The first show fetched a 318,800,024-byte media source, then HTTP 429 after 99 additional small Range requests and showed 0 frames. The second show loaded a 2,030,476,793-byte source and **rendered 97 decoded frames** but displayed only brief flashes of a logo; AudioOut initialization was skipped on -2144993266. See new Stage I below.  
 **Current primary blocker:** **First decoded frames are now CONFIRMED in shadPS4** (97 frames in the second v1.3.3 show), but smooth sustained video and audible audio are NOT verified. The first show was throttled (HTTP 429). The v1.3.4 framebuffer/audio/range changes remain to be tested on emulator and physical PS4.  
