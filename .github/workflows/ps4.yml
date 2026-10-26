@@ -1,0 +1,92 @@
+name: PS4 GoldHEN Experimental PKG
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  tests:
+    name: Test addon, TorBox, settings, GitHub schemas
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compile and execute portable C++ regression tests
+        run: |
+          g++ -std=c++17 -Wall -Wextra -Werror src/core.cpp tests/core_test.cpp -o /tmp/playtorrio-ps4-tests
+          /tmp/playtorrio-ps4-tests
+
+  pkg:
+    name: Build genuine PS4 experimental package
+    needs: tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install LLVM tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang lld
+      - name: Install checksum-verified OpenOrbis v0.5.4 toolchain
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/openorbis"
+          curl --fail --location --retry 3 --silent --show-error \
+            https://github.com/OpenOrbis/OpenOrbis-PS4-Toolchain/releases/download/v0.5.4/toolchain-llvm-18.tar.gz \
+            -o "$RUNNER_TEMP/openorbis/sdk.tar.gz"
+          echo "3c7cd5bb593ca74fa1c13fd59f3938dc0fc07985167f7275063019e63abe4526  $RUNNER_TEMP/openorbis/sdk.tar.gz" | sha256sum -c -
+          tar -xzf "$RUNNER_TEMP/openorbis/sdk.tar.gz" -C "$RUNNER_TEMP/openorbis"
+          sdk="$(find "$RUNNER_TEMP/openorbis" -type f -name link.x -printf '%h\n' | head -1)"
+          test -n "$sdk"
+          echo "OO_PS4_TOOLCHAIN=$sdk" >> "$GITHUB_ENV"
+      - name: Cross-compile and package
+        run: bash scripts/build-ps4.sh
+      - name: Validate PS4 PKG signature
+        run: |
+          file=dist/PlayTorrio-PS4-GoldHEN-10.01-EXPERIMENTAL.pkg
+          test -s "$file"
+          test "$(head -c 4 "$file" | od -An -tx1 | tr -d ' \n')" = 7f434e54
+          sha256sum "$file"
+      - name: Preserve PKG artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: PlayTorrio-PS4-GoldHEN-EXPERIMENTAL
+          path: dist/*.pkg
+          if-no-files-found: error
+      - name: Publish clearly labeled prototype release
+        env:
+          GH_TOKEN: ${ github.token }}
+        run: |
+          release=ps4-prototype-0.1.0
+          if gh release view "$release" >/dev/null 2>&1; then
+            gh release upload "$release" dist/*.pkg --clobber
+          else
+            gh release create "$release" dist/*.pkg --prerelease \
+              --title "PlayTorrio PS4 prototype (streaming NOT working yet)" \
+              --notes "Native shell only. NOT verified on PS4 hardware. TorBox playback, HTTPS addons, library sync and media engine are not integrated; do not mistake this for a complete PlayTorrio release."
+          fi
+      - name: Send experimental package to existing Telegram group
+        env:
+          BOT_TOKEN: ${ secrets.TELEGRAM_BOT_TOKEN }}
+          CHANNEL_ID: "-1003938575195"
+          RUN_URL: https://github.com/${ github.repository }}/actions/runs/${ github.run_id }}
+        run: |
+          if [ -z "$BOT_TOKEN" ]; then
+            echo "::notice::Add TELEGRAM_BOT_TOKEN to the PS4 repository's Actions secrets to enable delivery."
+            exit 0
+          fi
+          pkg="dist/PlayTorrio-PS4-GoldHEN-10.01-EXPERIMENTAL.pkg"
+          if [ "$(stat -c%s "$pkg")" -ge 50000000 ]; then
+            curl --fail --silent --show-error --retry 2 \
+              -F "chat_id=$CHANNEL_ID" -F "text=PlayTorrio PS4 experimental package available: $RUN_URL (too large to attach)" \
+              "https://api.telegram.org/bot$BOT_TOKEN/sendMessage" >/dev/null
+          else
+            curl --fail --silent --show-error --retry 2 \
+              -F "chat_id=$CHANNEL_ID" -F "document=@$pkg" \
+              -F "caption=PlayTorrio PS4 experimental build. NOT a working video player yet. $RUN_URL" \
+              "https://api.telegram.org/bot$BOT_TOKEN/sendDocument" >/dev/null
+          fi
+          echo "Telegram package delivered."
