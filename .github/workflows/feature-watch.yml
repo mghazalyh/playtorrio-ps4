@@ -15,8 +15,8 @@ jobs:
     steps:
       - name: Keep exactly one PS4 feature-review task
         env:
-          GH_TOKEN: ${ github.token }}
-          TARGET_REPO: ${ github.repository }}
+          GH_TOKEN: ${{ github.token }}
+          TARGET_REPO: ${{ github.repository }}
         shell: bash
         run: |
           set -euo pipefail
