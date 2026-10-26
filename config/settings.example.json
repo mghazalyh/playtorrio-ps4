@@ -13,5 +13,6 @@
   "diagnosticType": "movie",
   "diagnosticId": "tt0000001",
   "torboxTorrentId": -1,
-  "torboxFileId": -1
+  "torboxFileId": -1,
+  "directStreamUrl": ""
 }
