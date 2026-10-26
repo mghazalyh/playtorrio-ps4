@@ -83,7 +83,7 @@ done:
 }
 void shutdown(){
   if(http>0){sceHttpTerm(http);http=0;}
-  if(ssl>0){sceSslTerm(ssl);ssl=0;}
+  if(ssl>0){sceSslTerm();ssl=0;}
   if(networkPool>0){sceNetPoolDestroy(networkPool);networkPool=0;}
 }
 }
