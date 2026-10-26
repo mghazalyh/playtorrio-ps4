@@ -134,7 +134,7 @@ void featureCard(Scene2D& s,const Fonts& f,int x,int y,int index,bool selected){
 }
 void miniCard(Scene2D& s,const Fonts& f,int x,int y,int index,
               bool selected,const ps4diag::Summary& diag){
-  constexpr int w=182,h=76;
+  constexpr int w=182,h=70;
   const char* headings[]={"My List","Import settings","Test services","My addons",
                          "Try playback","Playback logs"};
   const char* desc[]={"Your saved titles","USB / local JSON","Press Triangle",
@@ -161,9 +161,9 @@ void home(Scene2D& s,const Fonts& f,int cardFocus,
   txt(s,f,"Browse",52,342,paper,3);
   txt(s,f,"Collections and account services",925,339,muted,0);
   for(int i=0;i<6;i++)featureCard(s,f,53+i*198,368,i,i==cardFocus);
-  txt(s,f,"Quick access",52,564,paper,3);
-  txt(s,f,"Configured for your console",965,561,muted,0);
-  for(int i=0;i<6;i++)miniCard(s,f,53+i*198,584,i,i+6==cardFocus,diag);
+  txt(s,f,"Quick access",52,558,paper,3);
+  txt(s,f,"Configured for your console",965,556,muted,0);
+  for(int i=0;i<6;i++)miniCard(s,f,53+i*198,570,i,i+6==cardFocus,diag);
 }
 void infoBox(Scene2D& s,const Fonts& f,int y,const std::string& name,
              const std::string& description,const std::string& info,
