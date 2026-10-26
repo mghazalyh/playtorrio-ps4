@@ -42,6 +42,17 @@ jobs:
           sdk="$(find "$RUNNER_TEMP/openorbis" -type f -name link.x -printf '%h\n' | head -1)"
           test -n "$sdk"
           echo "OO_PS4_TOOLCHAIN=$sdk" >> "$GITHUB_ENV"
+      - name: Provide legacy OpenSSL only for the official package builder
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --location --retry 3 --silent --show-error \
+            'https://security.ubuntu.com/ubuntu/pool/main/o/openssl/libssl1.1_1.1.1f-1ubuntu2.24_amd64.deb' \
+            -o "$RUNNER_TEMP/libssl1.1.deb"
+          mkdir -p "$RUNNER_TEMP/pkgtool-libssl"
+          dpkg-deb -x "$RUNNER_TEMP/libssl1.1.deb" "$RUNNER_TEMP/pkgtool-libssl"
+          test -f "$RUNNER_TEMP/pkgtool-libssl/usr/lib/x86_64-linux-gnu/libssl.so.1.1"
+          echo "LD_LIBRARY_PATH=$RUNNER_TEMP/pkgtool-libssl/usr/lib/x86_64-linux-gnu" >> "$GITHUB_ENV"
       - name: Cross-compile and package
         run: bash scripts/build-ps4.sh
       - name: Validate PS4 PKG signature
