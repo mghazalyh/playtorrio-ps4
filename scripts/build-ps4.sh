@@ -16,10 +16,12 @@ clang++ "${flags[@]}" -c ps4/main.cpp -o "$work/obj/main.o"
 clang++ "${flags[@]}" -c src/core.cpp -o "$work/obj/core.o"
 clang++ "${flags[@]}" -c ps4/native_net.cpp -o "$work/obj/native_net.o"
 clang++ "${flags[@]}" -c ps4/diagnostics.cpp -o "$work/obj/diagnostics.o"
+clang++ "${flags[@]}" -c ps4/video_player.cpp -o "$work/obj/video_player.o"
+clang++ "${flags[@]}" -c ps4/source_resolver.cpp -o "$work/obj/source_resolver.o"
 clang++ "${flags[@]}" -c "$sdk/samples/_common/graphics.cpp" -o "$work/obj/graphics.o"
 ld.lld -m elf_x86_64 -pie --script "$sdk/link.x" --eh-frame-hdr \
-  "$work/obj/main.o" "$work/obj/core.o" "$work/obj/graphics.o" "$work/obj/native_net.o" "$work/obj/diagnostics.o" \
-  -L"$sdk/lib" -lc -lkernel -lc++ -lSceVideoOut -lScePad -lSceUserService -lSceSysmodule -lSceFreeType -lSceNet -lSceSsl -lSceHttp \
+  "$work/obj/main.o" "$work/obj/core.o" "$work/obj/graphics.o" "$work/obj/native_net.o" "$work/obj/diagnostics.o" "$work/obj/video_player.o" "$work/obj/source_resolver.o" \
+  -L"$sdk/lib" -lc -lkernel -lc++ -lSceVideoOut -lScePad -lSceUserService -lSceSysmodule -lSceFreeType -lSceNet -lSceSsl -lSceHttp -lSceAvPlayer -lSceAudioOut \
   "$sdk/lib/crt1.o" -o "$work/app.elf"
 "$toolbin/create-fself" -in="$work/app.elf" -out="$work/app.oelf" \
   --eboot "$work/stage/eboot.bin" --paid 0x3800000000000011
@@ -41,7 +43,7 @@ contentid=IV0000-BREW20346_00-PLAYTORRIOPS4APP
 pkgtool="$toolbin/PkgTool.Core"
 "$pkgtool" sfo_new sce_sys/param.sfo
 "$pkgtool" sfo_setentry sce_sys/param.sfo APP_TYPE --type Integer --maxsize 4 --value 1
-"$pkgtool" sfo_setentry sce_sys/param.sfo APP_VER --type Utf8 --maxsize 8 --value 01.04
+"$pkgtool" sfo_setentry sce_sys/param.sfo APP_VER --type Utf8 --maxsize 8 --value 01.05
 "$pkgtool" sfo_setentry sce_sys/param.sfo ATTRIBUTE --type Integer --maxsize 4 --value 0
 "$pkgtool" sfo_setentry sce_sys/param.sfo CATEGORY --type Utf8 --maxsize 4 --value gd
 "$pkgtool" sfo_setentry sce_sys/param.sfo CONTENT_ID --type Utf8 --maxsize 48 --value "$contentid"
