@@ -17,7 +17,7 @@ jobs:
         run: |
           # Ubuntu hosted runners have fresh apt indexes. Avoid long updates
           # that can hang on unreliable package mirrors.
-          sudo timeout 130s apt-get install -y -qq unzip xvfb xauth mesa-vulkan-drivers vulkan-tools libvulkan1
+          sudo timeout 130s apt-get install -y -qq unzip xvfb xauth mesa-vulkan-drivers vulkan-tools libvulkan1 imagemagick
       - name: Run actual emulator boot attempt
         id: boot
         continue-on-error: true
@@ -94,14 +94,25 @@ jobs:
             xvfb-run -a -s '-screen 0 1280x720x24' vulkaninfo --summary \
             > logs/vulkan.txt 2>&1 || { cat logs/vulkan.txt; report BLOCKED 'Software Vulkan is unavailable; cannot start emulator'; }
           mkdir -p work/home work/config work/data
-          timeout --signal=INT --kill-after=10s 55s \
-            env HOME="$PWD/work/home" XDG_CONFIG_HOME="$PWD/work/config" \
-                XDG_DATA_HOME="$PWD/work/data" \
-                VK_ICD_FILENAMES="$icd" \
-                LIBGL_ALWAYS_SOFTWARE=1 \
+          # Capture a frame from the same virtual display while the emulator
+          # runs, not from a second X server. Keep timeout status for reporting.
+          set +e
+          env HOME="$PWD/work/home" XDG_CONFIG_HOME="$PWD/work/config" \
+              XDG_DATA_HOME="$PWD/work/data" \
+              VK_ICD_FILENAMES="$icd" \
+              LIBGL_ALWAYS_SOFTWARE=1 \
             xvfb-run -a -s '-screen 0 1280x720x24' \
-            "$emu" "$eboot" > logs/console.txt 2>&1
+            bash -c '
+              (sleep 19; timeout 10s import -window root logs/emulator-screen.png \
+                 2>logs/screenshot-errors.txt || true) &
+              timeout --signal=INT --kill-after=9s 55s "$1" "$2" \
+                > logs/console.txt 2>&1
+              result="$?"
+              wait || true
+              exit "$result"
+            ' _ "$emu" "$eboot"
           rc="$?"
+          set -e
           echo "Emulator exit code $rc" > logs/exit-status.txt
           find work/home work/data work/config -type f \( -name '*.log' -o -name '*.txt' \) -size -10M \
             -exec cp -n {} logs/ \; 2>/dev/null || true
