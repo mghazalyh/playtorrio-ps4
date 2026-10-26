@@ -82,6 +82,26 @@ Summary run(const ptv::Settings& cfg,bool githubWriteCheck){
     note("SUMMARY","passed="+std::to_string(s.passed)+" failed="+std::to_string(s.failed));
     return s;
   }
+  // Verify the TMDB v3 key using an application-level request.
+  // Never print a URL with the api_key query parameter, or any response body.
+  if(cfg.tmdb_api_key.empty())skip(s,"TMDB","No TMDB key configured");
+  else{
+    std::string endpoint="https://api.themoviedb.org/3/trending/movie/week";
+    std::map<std::string,std::string> header={{"Accept","application/json"}};
+    if(cfg.tmdb_api_key.rfind("eyJ",0)==0)
+      header["Authorization"]="Bearer "+cfg.tmdb_api_key;
+    else endpoint+="?api_key="+cfg.tmdb_api_key;
+    auto response=ps4net::request(endpoint,"GET",header,"",512*1024);
+    picojson::value payload;
+    bool valid=good(response)&&validJson(response.body,payload);
+    if(valid){
+      auto& object=payload.get<picojson::object>();
+      auto results=object.find("results");
+      valid=results!=object.end()&&results->second.is<picojson::array>();
+    }
+    mark(s,"TMDB",valid,"Trending movie endpoint "+outcome(response)+
+      " schema="+std::to_string((int)valid));
+  }
   // Manifests may encode addon configuration in their path: NEVER print URLs.
   if(cfg.addons.empty())skip(s,"ADDONS","No manifest URLs imported");
   for(size_t i=0;i<cfg.addons.size()&&i<12;i++){
@@ -146,7 +166,10 @@ Summary run(const ptv::Settings& cfg,bool githubWriteCheck){
       }
     }else skip(s,"TORBOX_DL","Set existing torboxTorrentId and torboxFileId to test resolution");
   }
-  if(cfg.github_token.empty())skip(s,"GITHUB","No PS4-local private repository credential configured");
+  if(!cfg.github_sync_enabled){
+    skip(s,"GITHUB","Disabled by local githubSyncEnabled=false; no GitHub requests sent");
+    skip(s,"GITHUB_WRITE","Library sync disabled");
+  }else if(cfg.github_token.empty())skip(s,"GITHUB","No PS4-local private repository credential configured");
   else{
     auto url=ptv::github_get_url(cfg);
     const auto headers=apiHeaders(cfg.github_token);
