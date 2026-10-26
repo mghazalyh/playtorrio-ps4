@@ -84,13 +84,13 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          release=ps4-video-alpha-0.6.0
+          release=ps4-visual-fix-0.7.0
           if gh release view "$release" >/dev/null 2>&1; then
             gh release upload "$release" dist/*.pkg dist/*.zip --clobber
           else
             gh release create "$release" dist/*.pkg dist/*.zip --prerelease \
-              --title "PlayTorrio PS4 v0.6 — Hardware video playback alpha" \
-              --notes "Native PS4 hardware AvPlayer path, video frames, audio output and Torrentio/TorBox stream resolution. Console playback is experimental and not verified on actual hardware. Diagnostic logs saved under /data/playtorrio/logs.: validate addon manifests, optional stream endpoint and CDN range request, TorBox account/torrent/optional existing file, GitHub read + SHA-guarded write. Persistent FTP log: /data/playtorrio/logs/diagnostics.log. Video decoder NOT implemented. This is an experimental test build."
+              --title "PlayTorrio PS4 v0.7 — Clear typography and TV layout" \
+              --notes "Fixed antialiased FreeType font compositing (signed alpha bug), rebuilt a cleaner TV layout with six browse cards and actionable quick settings, retained native AvPlayer integration and FTP diagnostics. PS4/shadPS4 visual behavior needs validation."
           fi
       - name: Send experimental package to existing Telegram group
         env:
@@ -110,7 +110,7 @@ jobs:
           else
             curl --fail --silent --show-error --retry 2 \
               -F "chat_id=$CHANNEL_ID" -F "document=@$pkg" \
-              -F "caption=PlayTorrio PS4 v0.6 hardware playback alpha. X in Discover/Addons/My List to resolve video, X pause, Circle exit. FTP logs /data/playtorrio/logs/diagnostics.log. Not yet PS4-tested. $RUN_URL" \
+              -F "caption=PlayTorrio PS4 v0.7 UI font and layout fix. X in Discover/Addons/My List to resolve video, X pause, Circle exit. FTP logs /data/playtorrio/logs/diagnostics.log. Not yet PS4-tested. $RUN_URL" \
               "https://api.telegram.org/bot$BOT_TOKEN/sendDocument" >/dev/null
           fi
           echo "Telegram package delivered."
