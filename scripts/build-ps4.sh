@@ -4,12 +4,12 @@ set -euo pipefail
 sdk="$(cd "$OO_PS4_TOOLCHAIN" && pwd)"
 toolbin="$sdk/bin/linux"
 work="$PWD/build/ps4"
-mkdir -p "$work/obj" "$work/stage/sce_sys/about" "$work/stage/sce_module" "$PWD/dist"
+mkdir -p "$work/obj" "$work/stage/sce_sys/about" "$work/stage/sce_module" "$work/stage/assets/fonts" "$PWD/dist"
 for needed in "$sdk/link.x" "$sdk/lib/crt1.o" "$sdk/samples/_common/graphics.cpp" \
   "$toolbin/create-fself" "$toolbin/create-gp4" "$toolbin/PkgTool.Core"; do
   test -e "$needed" || { echo "Missing OpenOrbis SDK component: $needed" >&2; exit 2; }
 done
-flags=(-std=c++17 -D_GNU_SOURCE -D_POSIX_C_SOURCE=200809L -D_XOPEN_SOURCE=700 --target=x86_64-pc-freebsd12-elf -fPIC -funwind-tables
+flags=(-std=c++17 -D_GNU_SOURCE -D_POSIX_C_SOURCE=200809L -D_XOPEN_SOURCE=700 -DGRAPHICS_USES_FONT --target=x86_64-pc-freebsd12-elf -fPIC -funwind-tables
        -isysroot "$sdk" -isystem "$sdk/include" -isystem "$sdk/include/c++/v1"
        -I "$sdk/samples/_common" -I vendor)
 clang++ "${flags[@]}" -c ps4/main.cpp -o "$work/obj/main.o"
@@ -17,7 +17,7 @@ clang++ "${flags[@]}" -c src/core.cpp -o "$work/obj/core.o"
 clang++ "${flags[@]}" -c "$sdk/samples/_common/graphics.cpp" -o "$work/obj/graphics.o"
 ld.lld -m elf_x86_64 -pie --script "$sdk/link.x" --eh-frame-hdr \
   "$work/obj/main.o" "$work/obj/core.o" "$work/obj/graphics.o" \
-  -L"$sdk/lib" -lc -lkernel -lc++ -lSceVideoOut -lScePad -lSceUserService \
+  -L"$sdk/lib" -lc -lkernel -lc++ -lSceVideoOut -lScePad -lSceUserService -lSceSysmodule -lSceFreeType \
   "$sdk/lib/crt1.o" -o "$work/app.elf"
 "$toolbin/create-fself" -in="$work/app.elf" -out="$work/app.oelf" \
   --eboot "$work/stage/eboot.bin" --paid 0x3800000000000011
@@ -27,6 +27,11 @@ for source in "$sample/sce_sys/icon0.png" "$sample/sce_sys/about/right.sprx"; do
 done
 cp "$sample/sce_sys/icon0.png" "$work/stage/sce_sys/icon0.png"
 cp "$sample/sce_sys/about/right.sprx" "$work/stage/sce_sys/about/right.sprx"
+font="$sdk/samples/font/assets/fonts/Gontserrat-Regular.ttf"
+license="$sdk/samples/font/assets/fonts/OFL.txt"
+test -s "$font" && test -s "$license" || { echo "Missing licensed font from OpenOrbis sample" >&2; exit 2; }
+cp "$font" "$work/stage/assets/fonts/Gontserrat-Regular.ttf"
+cp "$license" "$work/stage/assets/fonts/OFL.txt"
 if [[ -d "$sample/sce_module" ]]; then cp -a "$sample/sce_module/." "$work/stage/sce_module/"; fi
 cd "$work/stage"
 titleid=BREW20346
@@ -43,7 +48,7 @@ pkgtool="$toolbin/PkgTool.Core"
 "$pkgtool" sfo_setentry sce_sys/param.sfo TITLE --type Utf8 --maxsize 128 --value "PlayTorrio PS4 Prototype"
 "$pkgtool" sfo_setentry sce_sys/param.sfo TITLE_ID --type Utf8 --maxsize 12 --value "$titleid"
 "$pkgtool" sfo_setentry sce_sys/param.sfo VERSION --type Utf8 --maxsize 8 --value 01.00
-files=("eboot.bin" "sce_sys/about/right.sprx" "sce_sys/param.sfo" "sce_sys/icon0.png")
+files=("eboot.bin" "sce_sys/about/right.sprx" "sce_sys/param.sfo" "sce_sys/icon0.png" "assets/fonts/Gontserrat-Regular.ttf" "assets/fonts/OFL.txt")
 for f in sce_module/*; do if [[ -f "$f" ]]; then files+=("$f"); fi; done
 "$toolbin/create-gp4" -out pkg.gp4 --content-id="$contentid" --files "${files[*]}"
 "$pkgtool" pkg_build pkg.gp4 .
