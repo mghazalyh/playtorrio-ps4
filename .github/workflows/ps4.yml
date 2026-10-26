@@ -71,13 +71,13 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          release=ps4-diagnostics-0.4.0
+          release=ps4-integration-test-0.5.0
           if gh release view "$release" >/dev/null 2>&1; then
             gh release upload "$release" dist/*.pkg --clobber
           else
             gh release create "$release" dist/*.pkg --prerelease \
-              --title "PlayTorrio PS4 v0.4 — Native integration diagnostic PKG" \
-              --notes "Real native HTTPS integration diagnostics via Triangle: validate addon manifests, optional stream endpoint and CDN range request, TorBox account/torrent/optional existing file, GitHub read + SHA-guarded write. Persistent FTP log: /data/playtorrio/logs/diagnostics.log. Video decoder NOT implemented. This is an experimental test build."
+              --title "PlayTorrio PS4 v0.5 — One-button integration test PKG" \
+              --notes "Native HTTPS tests and real private GitHub watchlist titles displayed via Triangle: validate addon manifests, optional stream endpoint and CDN range request, TorBox account/torrent/optional existing file, GitHub read + SHA-guarded write. Persistent FTP log: /data/playtorrio/logs/diagnostics.log. Video decoder NOT implemented. This is an experimental test build."
           fi
       - name: Send experimental package to existing Telegram group
         env:
