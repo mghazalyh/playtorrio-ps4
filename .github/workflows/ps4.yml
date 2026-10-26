@@ -23,6 +23,8 @@ jobs:
           /tmp/playtorrio-ps4-catalog-tests
           g++ -std=c++17 -Wall -Wextra -Werror src/core.cpp tests/playback_choice_test.cpp -o /tmp/playtorrio-playback-choice-tests
           /tmp/playtorrio-playback-choice-tests
+          g++ -std=c++17 -Wall -Wextra -Werror tests/nv12_scaler_test.cpp -o /tmp/ptv-nv12-quality-tests
+          /tmp/ptv-nv12-quality-tests
 
   pkg:
     name: Build genuine PS4 experimental package
@@ -91,19 +93,19 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          release=ps4-native-playback-1.3.4
+          release=ps4-native-quality-1.3.5
           if gh release view "$release" >/dev/null 2>&1; then
             gh release upload "$release" dist/*.pkg dist/*.zip --clobber
           else
             gh release create "$release" dist/*.pkg dist/*.zip --prerelease \
-              --title "PlayTorrio PS4 v1.3.4 — Cached VideoOut frame blit" \
-              --notes "Runtime v1.3.3 confirmed 97 decoded video frames but only logo flashes and a second HTTP 429. The v1.3.4 build caches video frames, blits directly to native VideoOut memory, increases bounded HTTP ranges to 2 MiB, and tolerates AudioOut already initialized. Smooth video and sound remain unverified. GitHub sync disabled."
+              --title "PlayTorrio PS4 v1.3.5 — Full-pixel HD video scaling" \
+              --notes "Runtime v1.3.3 confirmed 97 decoded video frames but only logo flashes and a second HTTP 429. The v1.3.5 build caches video frames, blits directly to native VideoOut memory, increases bounded HTTP ranges to 2 MiB, and tolerates AudioOut already initialized. Smooth video and sound remain unverified. GitHub sync disabled."
           fi
       - name: Send emulator ZIP and experimental PKG to Telegram if configured
         env:
           BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           CHANNEL_ID: "-1003938575195"
-          RELEASE_URL: https://github.com/${{ github.repository }}/releases/tag/ps4-native-playback-1.3.4
+          RELEASE_URL: https://github.com/${{ github.repository }}/releases/tag/ps4-native-quality-1.3.5
         run: |
           if [ -z "$BOT_TOKEN" ]; then
             echo "::notice::Telegram delivery skipped: TELEGRAM_BOT_TOKEN is not configured. Both files are available in the GitHub release."
@@ -121,13 +123,13 @@ jobs:
             if [ "$(stat -c%s "$file")" -ge 50000000 ]; then
               curl --fail --silent --show-error --retry 2 \
                 -F "chat_id=$CHANNEL_ID" \
-                -F "text=PlayTorrio PS4 v1.3.4 $label: $RELEASE_URL (attachment exceeds 50 MB)" \
+                -F "text=PlayTorrio PS4 v1.3.5 $label: $RELEASE_URL (attachment exceeds 50 MB)" \
                 "https://api.telegram.org/bot$BOT_TOKEN/sendMessage" >/dev/null
             else
               curl --fail --silent --show-error --retry 2 \
                 -F "chat_id=$CHANNEL_ID" \
                 -F "document=@$file" \
-                -F "caption=PlayTorrio PS4 v1.3.4: $label. Native PS4 TMDB fetch enabled; Windows HostTools is an optional fallback. GitHub sync remains disabled. $RELEASE_URL" \
+                -F "caption=PlayTorrio PS4 v1.3.5: $label. Native PS4 TMDB fetch enabled; Windows HostTools is an optional fallback. GitHub sync remains disabled. $RELEASE_URL" \
                 "https://api.telegram.org/bot$BOT_TOKEN/sendDocument" >/dev/null
             fi
             echo "Delivered $label to configured Telegram channel."
