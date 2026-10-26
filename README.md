@@ -47,3 +47,17 @@ Install the v0.4 GoldHEN 10.01 experimental PKG. This is **not** a finished movi
 
 ### v0.5 watchlist preview
 A successful **Triangle** test downloads and validates the private JSON database, displays real library titles under **My List**, and retains an **offline private copy** at `/data/playtorrio/library-cache.json`. This is currently a read-only library view: editing, live background sync and full movie playback require further work. The same diagnostic run verifies GitHub Contents write permission using an identical-file SHA-guarded upload.
+
+## v0.6 — First actual PS4 hardware-video playback path
+
+Unlike earlier diagnostic packages, v0.6 links **libSceAvPlayer** and requests decoded video frames from the PS4 hardware decoder. A native stereo audio-output path is included. The renderer uses CPU NV12-to-RGB conversion: this is an initial functional attempt, not the final smooth GPU interface.
+
+### Start video on PS4
+1. On a USB drive, create `playtorrio/settings.json` from `config/settings.example.json`, putting your own credentials **only on your PS4**.
+2. Easiest first test: fill `directStreamUrl` with an HTTPS video link to media you are permitted to stream. For addon lookup, instead set `diagnosticId` to an actual Stremio movie ID or episode ID, and add your configured Torrentio `manifest.json` URL. If a Torrentio result is an infoHash and a TorBox key is configured, the resolver checks your TorBox torrents and can add a magnet to your TorBox account.
+3. PS4 **Settings → Square** imports the file. You can press **Triangle** for the existing network checks.
+4. Go to **Discover** and press **X** on Movies/Series, or go to **Addons** and press **X** to resolve the configured stream. Under **My List**, run Triangle to fetch the library, then press **X** on a saved title to try its Stremio sources.
+5. When playback opens, **X/Square** pauses/resumes, **Triangle** hides/shows overlay and **Circle** stops. The player displays only a short status—private video URLs and TorBox credentials are never shown.
+6. Retrieve the logs at `/data/playtorrio/logs/diagnostics.log` through GoldHEN FTP. Look for `[RESOLVE]`, `[PLAYBACK]`, and `[AUDIO]`. Especially useful: `PASS first decoded video frame rendered`.
+
+**Important limitations:** Console playback remains **unverified**. The PS4 hardware decoder may reject particular codecs/containers or signed CDN redirects. Basic audio output only supports 48 kHz stereo PCM. Subtitles, English audio-track switching, next-episode autoplay, seeking, and smooth GPU video rendering are still missing. This is not yet equivalent to Windows/iPad PlayTorrio. Use only streams you have permission to access.
