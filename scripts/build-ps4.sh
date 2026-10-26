@@ -44,7 +44,7 @@ contentid=IV0000-BREW20346_00-PLAYTORRIOPS4APP
 pkgtool="$toolbin/PkgTool.Core"
 "$pkgtool" sfo_new sce_sys/param.sfo
 "$pkgtool" sfo_setentry sce_sys/param.sfo APP_TYPE --type Integer --maxsize 4 --value 1
-"$pkgtool" sfo_setentry sce_sys/param.sfo APP_VER --type Utf8 --maxsize 8 --value 01.06
+"$pkgtool" sfo_setentry sce_sys/param.sfo APP_VER --type Utf8 --maxsize 8 --value 01.07
 "$pkgtool" sfo_setentry sce_sys/param.sfo ATTRIBUTE --type Integer --maxsize 4 --value 0
 "$pkgtool" sfo_setentry sce_sys/param.sfo CATEGORY --type Utf8 --maxsize 4 --value gd
 "$pkgtool" sfo_setentry sce_sys/param.sfo CONTENT_ID --type Utf8 --maxsize 48 --value "$contentid"
@@ -52,7 +52,7 @@ pkgtool="$toolbin/PkgTool.Core"
 "$pkgtool" sfo_setentry sce_sys/param.sfo SYSTEM_VER --type Integer --maxsize 4 --value 0
 "$pkgtool" sfo_setentry sce_sys/param.sfo TITLE --type Utf8 --maxsize 128 --value "PlayTorrio PS4 UI Test"
 "$pkgtool" sfo_setentry sce_sys/param.sfo TITLE_ID --type Utf8 --maxsize 12 --value "$titleid"
-"$pkgtool" sfo_setentry sce_sys/param.sfo VERSION --type Utf8 --maxsize 8 --value 01.06
+"$pkgtool" sfo_setentry sce_sys/param.sfo VERSION --type Utf8 --maxsize 8 --value 01.07
 files=("eboot.bin" "sce_sys/about/right.sprx" "sce_sys/param.sfo" "sce_sys/icon0.png" "assets/fonts/Gontserrat-Regular.ttf" "assets/fonts/OFL.txt")
 for f in sce_module/*; do if [[ -f "$f" ]]; then files+=("$f"); fi; done
 "$toolbin/create-gp4" -out pkg.gp4 --content-id="$contentid" --files "${files[*]}"
