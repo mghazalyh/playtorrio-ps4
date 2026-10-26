@@ -1,0 +1,100 @@
+name: shadPS4 v0.20 PS4 PKG smoke test
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/shadps4-smoke.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  emulator:
+    name: Extract and attempt headless shadPS4 launch
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Install emulator host prerequisites
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq unzip xvfb mesa-vulkan-drivers vulkan-tools libvulkan1
+      - name: Run actual emulator boot attempt
+        id: boot
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -uo pipefail
+          mkdir -p logs work
+          report() {
+            echo "RESULT=$1" | tee logs/RESULT.txt
+            echo "$2" | tee -a logs/RESULT.txt
+            {
+              echo "### shadPS4 0.20.0 / PlayTorrio v0.6"
+              echo "**$1** — $2"
+              echo
+              echo "This CI runner has software Vulkan and no PS4 firmware files. Emulator success does not prove sound/video on real PS4."
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          }
+          curl -fsSL --retry 3 \
+            https://github.com/mghazalyh/playtorrio-ps4/releases/download/ps4-video-alpha-0.6.0/PlayTorrio-PS4-GoldHEN-10.01-EXPERIMENTAL.pkg -o work/playtorrio.pkg \
+            || report BLOCKED 'Cannot fetch PKG from public release'
+          echo "PKG $(stat -c%s work/playtorrio.pkg) bytes" > logs/package.txt
+          test "$(head -c4 work/playtorrio.pkg | od -An -tx1 | tr -d ' \n')" = '7f434e54' \
+            || report FAILED 'Invalid PS4 package header'
+          curl -fsSL --retry 3 \
+            https://github.com/shadps4-emu/shadPS4/releases/download/v.0.20.0/shadps4-linux-sdl-0.20.0.zip \
+            -o work/shadps4.zip || report BLOCKED 'Unable to download official emulator'
+          mkdir -p work/emulator
+          unzip -q work/shadps4.zip -d work/emulator || report BLOCKED 'Emulator archive extraction failed'
+          find work/emulator -maxdepth 4 -type f -printf '%p %s bytes\n' > logs/emulator-files.txt
+          emu="$(find work/emulator -maxdepth 4 -type f \( -name 'shadPS4' -o -name 'shadps4' \) -print -quit)"
+          test -n "$emu" || report BLOCKED 'Emulator executable not found'
+          chmod +x "$emu"
+          "$emu" --help > logs/emulator-help.txt 2>&1
+          ldd "$emu" > logs/ldd.txt 2>&1 || true
+          if grep -q 'not found' logs/ldd.txt; then
+            report BLOCKED 'Linux host is missing required emulator libraries'
+          fi
+          curl -fsSL --retry 3 \
+            https://github.com/seregonwar/ShadPKG/releases/download/v2.1.0/shadpkg-debian \
+            -o work/shadpkg || report BLOCKED 'Unable to download PS4 package extractor'
+          chmod +x work/shadpkg
+          mkdir -p work/game
+          { work/shadpkg work/playtorrio.pkg work/game ||
+            work/shadpkg extract work/playtorrio.pkg work/game; } > logs/unpack.txt 2>&1
+          if [ "$?" != 0 ]; then
+            report BLOCKED 'The PKG extractor failed; see unpack.txt'
+          fi
+          find work/game -maxdepth 4 -type f -printf '%P %s bytes\n' > logs/game-files.txt
+          eboot="$(find work/game -maxdepth 4 -name eboot.bin -type f -print -quit)"
+          test -n "$eboot" || report FAILED 'PKG extraction found no eboot.bin'
+          echo "Extracted eboot: $(stat -c%s "$eboot") bytes" > logs/package-verified.txt
+          VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/lvp_icd.x86_64.json \
+            xvfb-run -a -s '-screen 0 1280x720x24' vulkaninfo --summary \
+            > logs/vulkan.txt 2>&1 || report BLOCKED 'Software Vulkan is unavailable; cannot start emulator'
+          mkdir -p work/home work/config work/data
+          timeout --signal=INT --kill-after=10s 55s \
+            env HOME="$PWD/work/home" XDG_CONFIG_HOME="$PWD/work/config" \
+                XDG_DATA_HOME="$PWD/work/data" \
+                VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/lvp_icd.x86_64.json \
+                LIBGL_ALWAYS_SOFTWARE=1 \
+            xvfb-run -a -s '-screen 0 1280x720x24' \
+            "$emu" "$eboot" > logs/console.txt 2>&1
+          rc="$?"
+          echo "Emulator exit code $rc" > logs/exit-status.txt
+          find work/home work/data work/config -type f \( -name '*.log' -o -name '*.txt' \) -size -10M \
+            -exec cp -n {} logs/ \; 2>/dev/null || true
+          if [ "$rc" = 124 ]; then
+            report INCONCLUSIVE 'Emulator survived 55 seconds; not proof that PlayTorrio rendered or decoded video'
+          elif [ "$rc" = 0 ]; then
+            report INCONCLUSIVE 'Emulator exited normally; inspect game-launch logs'
+          else
+            report FAILED "Emulator exited with code $rc; inspect crash/unsupported-firmware logs"
+          fi
+      - name: Publish shadPS4 logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: shadps4-v020-playtorrio-v06-smoke-logs
+          path: logs/
+          if-no-files-found: warn
