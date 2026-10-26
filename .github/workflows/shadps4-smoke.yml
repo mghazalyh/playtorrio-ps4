@@ -55,7 +55,18 @@ jobs:
           fi
           test -n "$emu" || report BLOCKED 'Emulator executable not found'
           chmod +x "$emu"
-          "$emu" --help > logs/emulator-help.txt 2>&1
+          # Official Linux 0.20.0 release is an AppImage. Unpack it so the
+          # test does not require FUSE or host display access to start.
+          if [[ "$emu" == *.AppImage ]]; then
+            appimage="$(realpath "$emu")"
+            mkdir -p work/appimage
+            (cd work/appimage && "$appimage" --appimage-extract) > logs/appimage-extract.txt 2>&1 ||
+              report BLOCKED 'shadPS4 AppImage runtime cannot be extracted on CI'
+            emu="$PWD/work/appimage/squashfs-root/AppRun"
+            test -e "$emu" || report BLOCKED 'AppImage contains no AppRun launcher'
+            chmod +x "$emu"
+          fi
+          timeout 15s "$emu" --help > logs/emulator-help.txt 2>&1 || true
           ldd "$emu" > logs/ldd.txt 2>&1 || true
           if grep -q 'not found' logs/ldd.txt; then
             report BLOCKED 'Linux host is missing required emulator libraries'
