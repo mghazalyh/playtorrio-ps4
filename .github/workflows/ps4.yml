@@ -61,11 +61,24 @@ jobs:
           test -s "$file"
           test "$(head -c 4 "$file" | od -An -tx1 | tr -d ' \n')" = 7f434e54
           sha256sum "$file"
-      - name: Preserve PKG artifact
+      - name: Validate emulator-ready extracted app
+        run: |
+          python3 - <<'PY'
+          import zipfile
+          path="dist/PlayTorrio-PS4-shadPS4-extracted.zip"
+          with zipfile.ZipFile(path) as z:
+              expected={"BREW20346/eboot.bin","BREW20346/sce_sys/param.sfo","BREW20346/assets/fonts/Gontserrat-Regular.ttf"}
+              assert expected.issubset(set(z.namelist())), sorted(expected-set(z.namelist()))
+              assert all(z.getinfo(p).file_size>0 for p in expected)
+          print("Extracted shadPS4 app folder verified")
+          PY
+      - name: Preserve PKG and shadPS4 folder artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: PlayTorrio-PS4-GoldHEN-EXPERIMENTAL
-          path: dist/*.pkg
+          name: PlayTorrio-PS4-PKG-and-shadPS4-UNPACKED
+          path: |
+            dist/*.pkg
+            dist/*.zip
           if-no-files-found: error
       - name: Publish clearly labeled prototype release
         env:
@@ -73,9 +86,9 @@ jobs:
         run: |
           release=ps4-video-alpha-0.6.0
           if gh release view "$release" >/dev/null 2>&1; then
-            gh release upload "$release" dist/*.pkg --clobber
+            gh release upload "$release" dist/*.pkg dist/*.zip --clobber
           else
-            gh release create "$release" dist/*.pkg --prerelease \
+            gh release create "$release" dist/*.pkg dist/*.zip --prerelease \
               --title "PlayTorrio PS4 v0.6 — Hardware video playback alpha" \
               --notes "Native PS4 hardware AvPlayer path, video frames, audio output and Torrentio/TorBox stream resolution. Console playback is experimental and not verified on actual hardware. Diagnostic logs saved under /data/playtorrio/logs.: validate addon manifests, optional stream endpoint and CDN range request, TorBox account/torrent/optional existing file, GitHub read + SHA-guarded write. Persistent FTP log: /data/playtorrio/logs/diagnostics.log. Video decoder NOT implemented. This is an experimental test build."
           fi
