@@ -461,6 +461,16 @@ A genuine final version requires direct native PS4 install/use with real hardwar
 
 ## 9. CHANGE LOG — append new work here (newest first)
 
+### 2026-10-27 — v1.3.4 video continuity and audio setup experiment (CI PASS; runtime pending)
+
+- **User observation, v1.3.3:** Two sources attempted: first hit CDN HTTP 429 after 99 additional small-range requests, 0 video frames; second successfully decoded **97 video frames** but visibly flashed a logo instead of providing usable continuous playback. The AudioOut call returned **-2144993266 (0x8026000E, ALREADY_INIT)**.
+- **Root cause verified:** the app classified AudioOut ALREADY_INIT as failure. **Performance hypotheses:** 256 KiB requests contributed to CDN throttling and rendering 180k+ tiny rectangles per decoded image was expensive; clearing frames between decoder deliveries caused flashing.
+- **Changes:** ps4/video_player.cpp/.hpp uses 2 MiB bounded HTTP Range blocks, handles already-initialized AudioOut, retains the most recent decoded RGB32 frame, draws write-only VideoOut rows using Scene2D::BlitRgb32, and logs VIDEO_PROGRESS frames, elapsed seconds and range counts. SDK graphics modifications are in build-local scripts/patch-graphics.py plus ps4/graphics.h declaration. PS4 build enables -O2 and APP_VER 01.34; release configuration is ps4-native-playback-1.3.4. README explains limitations.
+- **CI verified:** https://github.com/mghazalyh/playtorrio-ps4/actions/runs/40380405543 passed portable tests and PS4 packaging. Both ZIP and PKG are attached to https://github.com/mghazalyh/playtorrio-ps4/releases/tag/ps4-native-playback-1.3.4.
+- **NOT YET verified:** actual smooth video or sound in shadPS4 v1.3.4, or physical PS4. Need user to try this build and share sanitized VIDEO_IO / PLAYBACK / AUDIO logs.
+
+
+
 ### 2026-10-27 — Created permanent AGENTS.md and handover.md baseline (documentation only)
 - **Request:** User wants the repository to preserve every future change so Codex can take over if a chat session dies. Required two root files and a comprehensive first handover.
 - **Action:** Added Codex-focused engineering rules, automatic-session recovery procedure and mandatory maintenance policy; reconstructed development stages v0.1 through v1.3.3 from repository commits, source, workflow results, previous user diagnostics and screenshots.
