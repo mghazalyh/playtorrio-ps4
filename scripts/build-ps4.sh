@@ -9,7 +9,7 @@ for needed in "$sdk/link.x" "$sdk/lib/crt1.o" "$sdk/samples/_common/graphics.cpp
   "$toolbin/create-fself" "$toolbin/create-gp4" "$toolbin/PkgTool.Core"; do
   test -e "$needed" || { echo "Missing OpenOrbis SDK component: $needed" >&2; exit 2; }
 done
-flags=(-std=c++17 --target=x86_64-pc-freebsd12-elf -fPIC -funwind-tables
+flags=(-std=c++17 -D_GNU_SOURCE -D_POSIX_C_SOURCE=200809L -D_XOPEN_SOURCE=700 --target=x86_64-pc-freebsd12-elf -fPIC -funwind-tables
        -isysroot "$sdk" -isystem "$sdk/include" -isystem "$sdk/include/c++/v1"
        -I "$sdk/samples/_common" -I vendor)
 clang++ "${flags[@]}" -c ps4/main.cpp -o "$work/obj/main.o"
