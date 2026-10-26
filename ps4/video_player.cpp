@@ -332,7 +332,16 @@ bool Player::render(Scene2D& scene){
       rgbPixels_[at+outW]=pixel;rgbPixels_[at+outW+1]=pixel;
     }
   }
+  rgbW_=outW;rgbH_=outH;rgbX_=left;rgbY_=top;
+  scene.BlitRgb32(rgbPixels_.data(),rgbX_,rgbY_,rgbW_,rgbH_);
   ++frames_;
+  if(frames_==1||frames_%120==0){
+    const auto elapsed=std::chrono::duration_cast<std::chrono::seconds>(
+      std::chrono::steady_clock::now()-startTime_).count();
+    ps4diag::note("PLAYBACK","VIDEO_PROGRESS frames="+std::to_string(frames_)+
+      " elapsed_s="+std::to_string(elapsed)+
+      " ranges="+std::to_string(rangeRequests_.load()));
+  }
   if(!preferredTracks_){
     preferredTracks_=true;
     // Prefer language metadata only when explicitly English; otherwise
