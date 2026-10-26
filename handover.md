@@ -280,6 +280,34 @@ Because this log ended immediately after source acceptance, it cannot by itself 
 - **CI compilation success** for the underlying RGB32 integration at commit d1791bbd28bfcd262c5ca16640b7a395bc4662c2 (GitHub run 40380206205), while v1.3.4 tagged CI/release should be separately checked and logged below before claiming publish success.
 - No real PS4 hardware or v1.3.4 smooth video/audio test has yet been reported. The user must confirm actual visible frame continuity and sound.
 
+### Stage J — v1.3.4 real video is visibly pixelated; comparison with Stremio-PS4 and GMCA (v1.3.5)
+
+**User report and uploaded diagnostics(5).log on 2026-10-27 SGT:**
+- Native settings loaded with one addon and github_enabled=0; catalog TV=39 / movies=33.
+- An initial title selection before the catalog finished loaded failed source selection. Later source resolution succeeded.
+- First movie: 117 candidate sources, selected score=240; media HEAD 200, 206 bytes supported, reported media size **318,800,024 bytes**, first decoder read callback succeeded, fetched at least 29 2 MiB media chunks. Video decoding and picture presentation confirmed, **219 frames** before exit. Log line **AUDIO SKIP stream format not 48k stereo PCM** shows our sound implementation still rejects a real audio format.
+- Second video: 75 candidate sources, selected score=240; media HEAD 200, size **1,584,500,550 bytes**, initial CDN reads and video frames confirmed. AUDIO info: already initialized (not fatal); no English label, default retained. Video reached **1,059 frames**, a major change from the prior v1.3.3 97-frame milestone.
+- **User subjective result:** video is too low-quality/game-like despite actual frame output. Do NOT report playback as acceptable based only on decoded-frame counters.
+
+**Root causes in our v1.3.4 rendering code:**
+- `ps4/video_player.cpp` first scaled every video down to **960x540** and sampled once per **2x2 output block**, duplicating a single RGB value into four VideoOut pixels. This inevitably creates chunky nearest-neighbor visuals and leaves avoidable video space within the 1280x720 surface.
+- Always used integer limited-range **BT.601** conversion, even for HD frames where **BT.709** should be selected; ignored `AvVideoDetails.fullRange` and visible crop, potentially making colors incorrect and showing padded pixels.
+- Color conversion was still tied to the UI/video output loop and could reduce fluidity, even after the v1.3.4 native BlitRgb32 fast row copy fix.
+
+**Reference project study — read `docs/rendering-research.md` before changing GPU architecture:**
+- `Navinas3460/Stremio-PS4` (<https://github.com/Navinas3460/Stremio-PS4>) uses native **sceAvPlayer** and file replacement callbacks, decoder direct memory, crop-aware YUV conversion, **SSE2**, separate audio/video worker threads, **Piglet OpenGL ES 2.0 GPU RGBA textures**, `glTexSubImage2D`, `GL_LINEAR` texture filtering, and batched GPU/UI rendering. The repo says hardware-tested FW 11.02. **GPL-3.0** source; study concepts but don't paste its code into PlayTorrio without a deliberate license decision.
+- `thcolin/gamepad-media-center-aggregator` (<https://github.com/thcolin/gamepad-media-center-aggregator>) uses **libmpv/FFmpeg** and Borealis, with a PS4 OpenOrbis libmpv port and Piglet precompiled-shader workaround. Rich codec/subtitle/resample support comes with a much bigger dependency/porting burden and third-party licenses. Repo is **Apache-2.0**, individual libraries including MPV have their own licenses.
+- Both project architectures shift real video presentation toward GPU textures, unlike PlayTorrio's CPU video rectangle/block generation. **Best long-term** path for actual PS4: a texture-backed Piglet renderer with `GL_LINEAR`, buffered conversion worker and proper AV/audio sync. Avoid treating GMCA's full framework as a drop-in solution.
+
+**v1.3.5 interim fix (original code, CPU based, not a GPU backend):**
+- `src/nv12_scaler.hpp`: standalone portable bilinear per-pixel sampling of **both Y and UV**, correct BT.709 for HD and BT.601 for SD, full/limited YUV flag, padded pitch and even visible crops, up to **1280x720** output letterboxed to aspect ratio. Packed VideoOut RGB32 in existing framebuffer.
+- `ps4/video_player.cpp`: no more duplicated 2x2 color blocks; validates crop and passes current frame metadata into converter; logs **VIDEO_QUALITY size=... bt709=... full_range=... convert_ms=...** alongside VIDEO_PROGRESS. Continues native PS4 HTTP Range/file replacement callbacks and cached framebuffer blit.
+- `tests/nv12_scaler_test.cpp`: portable tests for neutral black/white, per-pixel gradients (regression against duplicates), padded pitch, invalid inputs; incorporated in Actions.
+- `.github/workflows/ps4.yml`: release tag **ps4-native-quality-1.3.5**; **scripts/build-ps4.sh** package APP_VER 01.35; README documents new behavior, reference links, limitations. Research recorded separately in `docs/rendering-research.md`.
+- **Build verified:** GitHub Actions **40383384276** succeeded, ZIP and PKG both appeared in the v1.3.5 release; later docs-only builds may republish same tag.
+- **NOT yet proven:** new visuals or frame rate on shadPS4; **bilinear CPU work may actually reduce FPS**, so user's next test must compare screen clarity AND measured convert_ms and frame throughput. Physical PS4 remains untested.
+- Audio remains separate: a stream logged not-48k-stereo-PCM, and the v1.3.5 fix does not add resampling, downmixing, or audio sync.
+
 ## 5. Important architecture and debugging discoveries (do not lose)
 
 ### 5.1 HTTP transport symptom versus root cause
@@ -460,6 +488,18 @@ A genuine final version requires direct native PS4 install/use with real hardwar
 10. Do not silently switch on GitHub sync.
 
 ## 9. CHANGE LOG — append new work here (newest first)
+
+### 2026-10-27 — v1.3.5 picture-quality pass, external PS4 rendering research (CI PASS; runtime test PENDING)
+
+- **Request:** User said playback now works but picture looks “rendered in a video game,” and directed investigation of Stremio-PS4 and gamepad-media-center-aggregator.
+- **Runtime evidence:** Uploaded `diagnostics(5).log` from v1.3.4 shows two playable shows, decoded frames **219** and **1,059**; one AUDIO SKIP for a non-48k-stereo-PCM format. Native transport, file callbacks and decoded-video output are working. Subjectively poor visual resolution.
+- **Confirmed visual code defects:** 960x540 max surface, one sample duplicated into every 2x2 block, unconditional SD BT.601 and no full-range/crop handling. CPU conversion on the UI thread persists.
+- **Research:** `docs/rendering-research.md` compares the reference's Piglet/EGL GPU texture `GL_LINEAR` rendering, separate threaded NV12 conversion, AV memory placement (Stremio-PS4) with GMCA's Borealis/libmpv/FFmpeg/precompiled shaders. GPL-3.0 vs Apache-2.0/third-party deps noted. No code copied.
+- **Implementation:** `src/nv12_scaler.hpp`, `tests/nv12_scaler_test.cpp`, `ps4/video_player.cpp/.hpp`, `scripts/build-ps4.sh` (APP_VER 01.35), `.github/workflows/ps4.yml` (release `ps4-native-quality-1.3.5`), README, reference note. Bilinear full-pixel YUV, BT.709/full-range, pitch/crop, full 1280x720 VideoOut limit, diagnostic CPU conversion timing.
+- **Verification:** portable C++ quality regression tests and PS4 cross-compile/package GitHub run **40383384276** passed; v1.3.5 release ZIP and PKG uploaded. **Emulator quality, FPS, audio and hardware PS4 NOT yet verified.**
+- **Next:** test v1.3.5 output image and compare VIDEO_QUALITY convert_ms and actual fluidity; design GPU Piglet texture rendering and off-main-thread video pipeline in a separate measured milestone.
+
+
 
 ### 2026-10-27 — v1.3.4 video continuity and audio setup experiment (CI PASS; runtime pending)
 
