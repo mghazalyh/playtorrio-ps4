@@ -1,6 +1,7 @@
 #include "video_player.hpp"
 #include "diagnostics.hpp"
 #include "native_net.hpp"
+#include "../src/nv12_scaler.hpp"
 #include <cstdlib>
 #include <cstring>
 #include <algorithm>
@@ -303,41 +304,49 @@ bool Player::render(Scene2D& scene){
     }
     return false;
   }
-  const uint8_t* yPlane=(const uint8_t*)frame.data;
-  const uint8_t* uvPlane=yPlane+(size_t)pitch*h;
-  // Letterboxed video at up to 1152x648, using direct framebuffer 2x2
-  // blocks. This is deliberately simple until a texture/GPU backend is ready.
-  constexpr int maxW=960,maxH=540;
-  float ratio=std::min((float)maxW/w,(float)maxH/h);
-  int outW=((int)(w*ratio)/2)*2,outH=((int)(h*ratio)/2)*2;
-  if(outW<=0||outH<=0)return false;
-  const int left=(1280-outW)/2,top=(720-outH)/2;
-  rgbPixels_.resize((size_t)outW*outH);
-  for(int row=0;row<outH;row+=2) {
-    const int sy=std::min(h-1,(int)(((float)row/outH)*h));
-    const uint8_t* luma=yPlane+(size_t)sy*pitch;
-    const uint8_t* chroma=uvPlane+(size_t)(sy/2)*pitch;
-    for(int col=0;col<outW;col+=2){
-      int sx=std::min(w-2,(int)(((float)col/outW)*w))&~1;
-      int Y=(int)luma[sx]-16;
-      int U=(int)chroma[sx]-128,V=(int)chroma[sx+1]-128;
-      int r=(298*Y+409*V+128)>>8;
-      int g=(298*Y-100*U-208*V+128)>>8;
-      int b=(298*Y+516*U+128)>>8;
-      auto clamp=[](int c)->uint8_t{return (uint8_t)std::max(0,std::min(255,c));};
-      const uint32_t pixel=0x80000000u |
-           ((uint32_t)clamp(r)<<16)|((uint32_t)clamp(g)<<8)|clamp(b);
-      const size_t at=(size_t)row*outW+col;
-      rgbPixels_[at]=pixel;rgbPixels_[at+1]=pixel;
-      rgbPixels_[at+outW]=pixel;rgbPixels_[at+outW+1]=pixel;
+  // AvPlayer's decoder buffer may be height-aligned and cropped.
+  // Use the actual plane height/pitch and visible crop, not an assumed
+  // 2x2 block grid or the full padded picture.
+  const int cropL=(int)v.cropLeft,cropR=(int)v.cropRight;
+  const int cropT=(int)v.cropTop,cropB=(int)v.cropBottom;
+  const int visibleW=w-cropL-cropR,visibleH=h-cropT-cropB;
+  if(cropL<0||cropR<0||cropT<0||cropB<0||
+     visibleW<2||visibleH<2){
+    if(!loggedInvalidFrame_){
+      loggedInvalidFrame_=true;
+      ps4diag::note("PLAYBACK","FAIL invalid decoder crop offsets");
     }
+    return false;
   }
-  rgbW_=outW;rgbH_=outH;rgbX_=left;rgbY_=top;
-  scene.BlitRgb32(rgbPixels_.data(),rgbX_,rgbY_,rgbW_,rgbH_);
+  // Use the full 1280x720 PS4 video output surface, retaining letterboxing.
+  // Resample every pixel (bilinear Y and UV), with HD BT.709/full-range flags.
+  const float scale=std::min(1280.f/visibleW,720.f/visibleH);
+  const int outW=std::max(2,((int)(visibleW*scale)/2)*2);
+  const int outH=std::max(2,((int)(visibleH*scale)/2)*2);
+  if(outW>1280||outH>720)return false;
+  const auto convertStart=std::chrono::steady_clock::now();
+  if(!ptvvideo::scale_nv12((const uint8_t*)frame.data,w,h,pitch,
+                           cropL,cropT,visibleW,visibleH,outW,outH,
+                           v.fullRange!=0,rgbPixels_)){
+    if(!loggedInvalidFrame_){
+      loggedInvalidFrame_=true;
+      ps4diag::note("PLAYBACK","FAIL crop-aware NV12 conversion");
+    }
+    return false;
+  }
+  rgbW_=outW;rgbH_=outH;
+  rgbX_=(1280-outW)/2;rgbY_=(720-outH)/2;
+  scene.BlitRgb32(rgbPixels_.data(),rgbX_,rgbY_,outW,outH);
   ++frames_;
   if(frames_==1||frames_%120==0){
     const auto elapsed=std::chrono::duration_cast<std::chrono::seconds>(
       std::chrono::steady_clock::now()-startTime_).count();
+    const auto convertMs=std::chrono::duration_cast<std::chrono::milliseconds>(
+       std::chrono::steady_clock::now()-convertStart).count();
+    ps4diag::note("PLAYBACK","VIDEO_QUALITY size="+std::to_string(outW)+"x"+
+      std::to_string(outH)+" bt709="+std::to_string(visibleH>=720)+
+      " full_range="+std::to_string(v.fullRange!=0)+
+      " convert_ms="+std::to_string(convertMs));
     ps4diag::note("PLAYBACK","VIDEO_PROGRESS frames="+std::to_string(frames_)+
       " elapsed_s="+std::to_string(elapsed)+
       " ranges="+std::to_string(rangeRequests_.load()));
