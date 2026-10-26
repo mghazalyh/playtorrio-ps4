@@ -27,6 +27,10 @@ jobs:
           /tmp/ptv-nv12-quality-tests
           g++ -std=c++17 -Wall -Wextra -Werror tests/show_details_test.cpp -o /tmp/ptv-show-details-tests
           /tmp/ptv-show-details-tests
+          g++ -std=c++17 -Wall -Wextra -Werror tests/advanced_discover_test.cpp -o /tmp/ptv-advanced-tests
+          /tmp/ptv-advanced-tests
+          g++ -std=c++17 -Wall -Wextra -Werror tests/local_library_test.cpp -o /tmp/ptv-local-list-tests
+          /tmp/ptv-local-list-tests
 
   pkg:
     name: Build genuine PS4 experimental package
@@ -95,19 +99,19 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          release=ps4-cinematic-ui-1.4.0
+          release=ps4-advanced-discover-1.5.0
           if gh release view "$release" >/dev/null 2>&1; then
             gh release upload "$release" dist/*.pkg dist/*.zip --clobber
           else
             gh release create "$release" dist/*.pkg dist/*.zip --prerelease \
-              --title "PlayTorrio PS4 v1.4.0 — TMDB posters, episodes and manual stream selection" \
-              --notes "Runtime v1.3.3 confirmed 97 decoded video frames but only logo flashes and a second HTTP 429. The v1.4.0 build caches video frames, blits directly to native VideoOut memory, increases bounded HTTP ranges to 2 MiB, and tolerates AudioOut already initialized. Smooth video and sound remain unverified. GitHub sync disabled."
+              --title "PlayTorrio PS4 v1.5.0 — advanced Discover, recommendations and offline My List" \
+              --notes "Advanced Discover follows the active Windows/iOS PlayTorrio v1.1.7 branch: optional title search, TMDB sort, origin country, language, year range and page navigation. Adds TMDB recommendations and local-only My List. Native PS4 runtime, image and playback tests still required. GitHub watchlist sync disabled."
           fi
       - name: Send emulator ZIP and experimental PKG to Telegram if configured
         env:
           BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           CHANNEL_ID: "-1003938575195"
-          RELEASE_URL: https://github.com/${{ github.repository }}/releases/tag/ps4-cinematic-ui-1.4.0
+          RELEASE_URL: https://github.com/${{ github.repository }}/releases/tag/ps4-advanced-discover-1.5.0
         run: |
           if [ -z "$BOT_TOKEN" ]; then
             echo "::notice::Telegram delivery skipped: TELEGRAM_BOT_TOKEN is not configured. Both files are available in the GitHub release."
@@ -125,13 +129,13 @@ jobs:
             if [ "$(stat -c%s "$file")" -ge 50000000 ]; then
               curl --fail --silent --show-error --retry 2 \
                 -F "chat_id=$CHANNEL_ID" \
-                -F "text=PlayTorrio PS4 v1.4.0 $label: $RELEASE_URL (attachment exceeds 50 MB)" \
+                -F "text=PlayTorrio PS4 v1.5.0 $label: $RELEASE_URL (attachment exceeds 50 MB)" \
                 "https://api.telegram.org/bot$BOT_TOKEN/sendMessage" >/dev/null
             else
               curl --fail --silent --show-error --retry 2 \
                 -F "chat_id=$CHANNEL_ID" \
                 -F "document=@$file" \
-                -F "caption=PlayTorrio PS4 v1.4.0: $label. Native PS4 TMDB fetch enabled; Windows HostTools is an optional fallback. GitHub sync remains disabled. $RELEASE_URL" \
+                -F "caption=PlayTorrio PS4 v1.5.0: $label. Native PS4 TMDB fetch enabled; Windows HostTools is an optional fallback. GitHub sync remains disabled. $RELEASE_URL" \
                 "https://api.telegram.org/bot$BOT_TOKEN/sendDocument" >/dev/null
             fi
             echo "Delivered $label to configured Telegram channel."
