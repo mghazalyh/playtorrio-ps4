@@ -171,7 +171,15 @@ Summary run(const ptv::Settings& cfg,bool githubWriteCheck){
             picojson::value item;
             if(validJson(record.second.item_json,item)){
               auto title=getString(item.get<picojson::object>(),"title");
-              if(!title.empty())s.preview_titles.push_back(title);
+              const auto& itemobj=item.get<picojson::object>();
+              auto imdb=getString(itemobj,"imdbId");
+              auto type=getString(itemobj,"type");
+              // Keep titles and IDs in lockstep for controller selection.
+              if(!title.empty()&&!imdb.empty()){
+                s.preview_titles.push_back(title);
+                s.preview_ids.push_back(imdb);
+                s.preview_types.push_back(type=="series"?"series":"movie");
+              }
             }
           }
           // Keep a private offline cache; original GitHub JSON is preserved.
