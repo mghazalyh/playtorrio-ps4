@@ -16,7 +16,7 @@
 
 namespace ps4video {
 namespace {
-constexpr size_t kRemoteBlock=256*1024;
+constexpr size_t kRemoteBlock=2*1024*1024;
 // Strictly parse RFC 7233 Content-Range: "bytes start-end/total".
 bool parseContentRange(const std::string& input,uint64_t& begin,
                        uint64_t& finish,uint64_t& total){
@@ -135,7 +135,7 @@ int Player::readRemote(void* ptr,uint8_t* out,uint64_t position,uint32_t length)
       self->cacheOffset_=start;
       self->cache_.assign(response.body.begin(),response.body.end());
       const uint64_t count=++self->rangeRequests_;
-      if(count==1||count%32==0)ps4diag::note("VIDEO_IO","PASS CDN range chunks="+std::to_string(count));
+      if(count==1||count%8==0)ps4diag::note("VIDEO_IO","PASS CDN range chunks="+std::to_string(count));
     }
     const size_t into=(size_t)(offset-self->cacheOffset_);
     const uint32_t available=std::min((size_t)(want-copied),self->cache_.size()-into);
@@ -217,7 +217,13 @@ void Player::audioLoop(){
   int sys=sceSysmoduleLoadModuleInternal(ORBIS_SYSMODULE_INTERNAL_AUDIOOUT);
   if(sys<0){ps4diag::note("AUDIO","SKIP module load error="+std::to_string(sys));return;}
   int ret=sceAudioOutInit();
-  if(ret<0){ps4diag::note("AUDIO","SKIP init error="+std::to_string(ret));return;}
+  // 0x8026000E = ORBIS_AUDIO_OUT_ERROR_ALREADY_INIT.
+  // shadPS4 and a real PS4 may have initialized AudioOut already.
+  if(ret<0 && static_cast<uint32_t>(ret)!=0x8026000Eu){
+    ps4diag::note("AUDIO","SKIP init error="+std::to_string(ret));return;
+  }
+  if(static_cast<uint32_t>(ret)==0x8026000Eu)
+    ps4diag::note("AUDIO","INFO AudioOut already initialized; trying port");
   constexpr int samples=1024;
   const int port=sceAudioOutOpen(user_,ORBIS_AUDIO_OUT_PORT_TYPE_MAIN,0,
       samples,48000,ORBIS_AUDIO_OUT_PARAM_FORMAT_S16_STEREO);
