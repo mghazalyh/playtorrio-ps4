@@ -40,6 +40,8 @@ static void section(const picojson::object& o,const char* key,bool series,
     entry.year=safeText(get(obj,"year"),4);
     entry.overview=safeText(get(obj,"overview"),270);
     entry.imdb_id=get(obj,"imdbId");
+    entry.poster_path=get(obj,"poster_path");
+    entry.backdrop_path=get(obj,"backdrop_path");
     if(entry.imdb_id.size()>20||entry.imdb_id.rfind("tt",0)!=0 ||
         !std::all_of(entry.imdb_id.begin()+2,entry.imdb_id.end(),
              [](unsigned char c){return c>='0'&&c<='9';}))
@@ -82,6 +84,8 @@ bool parse_tmdb_results(const std::string& body,bool tv,std::vector<Item>& items
     item.tmdb_id=getInt(r,"id");
     item.title=safeText(get(r,tv?"name":"title"),70);
     item.overview=safeText(get(r,"overview"),270);
+    item.poster_path=get(r,"poster_path");
+    item.backdrop_path=get(r,"backdrop_path");
     const auto date=get(r,tv?"first_air_date":"release_date");
     item.year=date.size()>=4?safeText(date.substr(0,4),4):std::string{};
     item.series=tv;

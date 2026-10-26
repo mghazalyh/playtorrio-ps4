@@ -4,7 +4,7 @@
 namespace ptvcatalog {
 struct Item {
   int tmdb_id=0;
-  std::string title,overview,imdb_id,year;
+  std::string title,overview,imdb_id,year,poster_path,backdrop_path;
   float rating=0;
   bool series=false;
 };

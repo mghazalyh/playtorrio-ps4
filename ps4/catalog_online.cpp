@@ -8,6 +8,29 @@
 #include <vector>
 
 namespace ptvcatalog {
+static ps4net::Response api(const ptv::Settings& cfg,const std::string& endpoint){
+  std::map<std::string,std::string> headers={{"Accept","application/json"}};
+  const bool bearer=cfg.tmdb_api_key.rfind("eyJ",0)==0;
+  if(bearer)headers["Authorization"]="Bearer "+cfg.tmdb_api_key;
+  std::string url="https://api.themoviedb.org/3"+endpoint+
+                   (endpoint.find('?')==std::string::npos?"?":"&")+"language=en-US";
+  if(!bearer)url+="&api_key="+cfg.tmdb_api_key;
+  return ps4net::request(url,"GET",headers,"",256*1024);
+}
+bool fetch_seasons(const ptv::Settings& cfg,int tmdbId,
+                   std::vector<ptvdetail::Season>& result){
+  if(cfg.tmdb_api_key.empty()||tmdbId<=0)return false;
+  auto res=api(cfg,"/tv/"+std::to_string(tmdbId));
+  return res.status==200&&!res.platform_error&&!res.truncated&&
+         ptvdetail::parse_seasons(res.body,result);
+}
+bool fetch_episodes(const ptv::Settings& cfg,int tmdbId,int season,
+                    std::vector<ptvdetail::Episode>& result){
+  if(cfg.tmdb_api_key.empty()||tmdbId<=0||season<=0||season>500)return false;
+  auto res=api(cfg,"/tv/"+std::to_string(tmdbId)+"/season/"+std::to_string(season));
+  return res.status==200&&!res.platform_error&&!res.truncated&&
+         ptvdetail::parse_episodes(res.body,season,result);
+}
 static std::string failure(const char* step,const ps4net::Response& r){
   return std::string(step)+" http="+std::to_string(r.status)+
     " transport="+std::to_string(r.platform_error)+
