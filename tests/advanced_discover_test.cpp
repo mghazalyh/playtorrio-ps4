@@ -39,5 +39,15 @@ int main(){
  row["vote_count"]=picojson::value(30.0);assert(!matches(row,f));
  f.from_year=2030;f.to_year=2020;assert(!valid(f));
  f.from_year=0;f.to_year=0;f.page=501;assert(!valid(f));
+ f.page=1;
+ f.sort="popularity.desc";f.country="JP";f.language="ja";f.title="Dune";
+ f.series=false;f.from_year=2020;f.to_year=2025;
+ const std::string saved=save_preferences(f);
+ Filters restored;
+ assert(load_preferences(saved,restored));
+ assert(restored.country=="JP"&&!restored.series&&restored.title=="Dune");
+ assert(restored.from_year==2020&&restored.to_year==2025);
+ assert(!load_preferences(R"({"version":2})",restored));
+ assert(!load_preferences("not json",restored));
  std::puts("Active ptv3 v1.1.7 Discover filter parity regression passed");
 }
