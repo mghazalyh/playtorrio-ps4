@@ -17,7 +17,7 @@ jobs:
         run: |
           # Ubuntu hosted runners have fresh apt indexes. Avoid long updates
           # that can hang on unreliable package mirrors.
-          sudo timeout 130s apt-get install -y -qq unzip xvfb mesa-vulkan-drivers vulkan-tools libvulkan1
+          sudo timeout 130s apt-get install -y -qq unzip xvfb xauth mesa-vulkan-drivers vulkan-tools libvulkan1
       - name: Run actual emulator boot attempt
         id: boot
         continue-on-error: true
@@ -87,7 +87,7 @@ jobs:
           echo "Extracted eboot: $(stat -c%s "$eboot") bytes" > logs/package-verified.txt
           VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/lvp_icd.x86_64.json \
             xvfb-run -a -s '-screen 0 1280x720x24' vulkaninfo --summary \
-            > logs/vulkan.txt 2>&1 || report BLOCKED 'Software Vulkan is unavailable; cannot start emulator'
+            > logs/vulkan.txt 2>&1 || { cat logs/vulkan.txt; report BLOCKED 'Software Vulkan is unavailable; cannot start emulator'; }
           mkdir -p work/home work/config work/data
           timeout --signal=INT --kill-after=10s 55s \
             env HOME="$PWD/work/home" XDG_CONFIG_HOME="$PWD/work/config" \
