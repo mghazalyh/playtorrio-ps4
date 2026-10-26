@@ -163,8 +163,31 @@ Summary run(const ptv::Settings& cfg,bool githubWriteCheck){
         std::map<std::string,ptv::LibraryRecord> records;
         std::string parseError;
         valid=!sha.empty()&&ptv::parse_library(content,records,parseError);
-        if(valid)s.library_titles=(int)std::count_if(records.begin(),records.end(),
-          [](const auto& v){return !v.second.deleted;});
+        if(valid){
+          s.library_titles=(int)std::count_if(records.begin(),records.end(),
+            [](const auto& v){return !v.second.deleted;});
+          for(const auto& record:records){
+            if(record.second.deleted || s.preview_titles.size()>=16)continue;
+            picojson::value item;
+            if(validJson(record.second.item_json,item)){
+              auto title=getString(item.get<picojson::object>(),"title");
+              if(!title.empty())s.preview_titles.push_back(title);
+            }
+          }
+          // Keep a private offline cache; original GitHub JSON is preserved.
+          // Do not write secrets to disk except the separately imported settings.
+          const char* path="/data/playtorrio/library-cache.json.tmp";
+          FILE* file=fopen(path,"wb");
+          if(file){
+            const bool ok=fwrite(content.data(),1,content.size(),file)==content.size();
+            fflush(file);fclose(file);
+            if(ok){
+              chmod(path,0600);
+              if(rename(path,"/data/playtorrio/library-cache.json")!=0)
+                remove(path);
+            }else remove(path);
+          }
+        }
       }
     }
     mark(s,"GITHUB",valid,"private watchlist read "+outcome(remote)+
