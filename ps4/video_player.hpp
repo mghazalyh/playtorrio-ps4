@@ -18,7 +18,8 @@ public:
   void close();
   void pauseToggle();
   // Called on PS4 UI/render thread. Display most recent decoded NV12 frame.
-  // The 2x2 block sampling is CPU-based; no quality or FPS guarantee.
+  // HD crop-aware bilinear NV12 conversion is still CPU-based; GPU texture
+  // presentation is the planned longer-term backend (FPS is not guaranteed).
   bool render(Scene2D& canvas);
   Status state()const{return status_.load();}
   uint64_t frames()const{return frames_;}
