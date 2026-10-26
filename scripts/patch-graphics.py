@@ -33,26 +33,24 @@ fix = r"""                // FreeType's grayscale coverage is UNSIGNED. The orig
                     x >= this->width || y >= this->height)
                     continue;
 
-                // Blend with the actual backdrop pixel, not a constant
-                // black background; handles light and dark colored cards.
-                uint32_t* pixels = reinterpret_cast<uint32_t*>(
-                    this->frameBuffers[this->activeFrameBufferIdx]);
-                const size_t idx = static_cast<size_t>(y) * this->width + x;
-                const uint32_t prev = pixels[idx];
+                // Do NOT read back from the PS4 video-out mapped buffer.
+                // Scene2D writes directly into video memory. Several drivers
+                // (and shadPS4) permit writes but cannot safely read it back.
+                // Preblend coverage with the caller-provided background,
+                // then use the proven DrawPixel write-only operation.
                 const unsigned alpha = coverage;
-                const unsigned inv = 255 - alpha;
-                const unsigned red =
-                    (alpha * fgColor.r + inv * ((prev >> 16) & 255) + 127) / 255;
-                const unsigned green =
-                    (alpha * fgColor.g + inv * ((prev >> 8) & 255) + 127) / 255;
-                const unsigned blue =
-                    (alpha * fgColor.b + inv * (prev & 255) + 127) / 255;
-                pixels[idx] = 0x80000000u | (red << 16) |
-                              (green << 8) | blue;
+                const unsigned inv = 255u - alpha;
+                const uint8_t rr = static_cast<uint8_t>(
+                    (alpha * fgColor.r + inv * bgColor.r + 127) / 255);
+                const uint8_t gg = static_cast<uint8_t>(
+                    (alpha * fgColor.g + inv * bgColor.g + 127) / 255);
+                const uint8_t bb = static_cast<uint8_t>(
+                    (alpha * fgColor.b + inv * bgColor.b + 127) / 255);
+                this->DrawPixel(x, y, Color{rr, gg, bb});
             }
         }"""
 out = src[:start] + fix + src[end:]
-if "const uint8_t coverage" not in out or out.count("pixels[idx] =") != 1:
+if "const uint8_t coverage" not in out or out.count("this->DrawPixel(x, y, Color{rr, gg, bb});") != 1:
     raise SystemExit("Anti-alias fix failed to apply")
 Path(sys.argv[2]).write_text(out)
-print("Patched OpenOrbis FreeType: unsigned coverage + framebuffer blending")
+print("Patched OpenOrbis FreeType: unsigned coverage + write-only background blending")
