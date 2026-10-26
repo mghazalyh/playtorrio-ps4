@@ -15,7 +15,7 @@ int main() {
   assert(stream_url(s.addons[0],"series","tt456:1:2")=="https://torrentio.example/abcd/stream/series/tt456%3A1%3A2.json");
   Manifest m;assert(parse_manifest(R"({"id":"com.example.stream","name":"Test","types":["movie","series"],"resources":[{"name":"stream","types":["movie"]}]})",m,err));
   assert(m.streams && m.types.size()==2);
-  auto streams=parse_streams(R"({"streams":[{"name":"TorBox","title":"1080p","url":"https://dl.example/video.mkv"},{"name":"Raw magnet","infoHash":"0123456789abcdef0123456789abcdef01234567","fileIdx":4},{"name":"invalid","url":"javascript:alert(1)"}]})","Torrentio",err);
+  auto streams=parse_streams(R"json({"streams":[{"name":"TorBox","title":"1080p","url":"https://dl.example/video.mkv"},{"name":"Raw magnet","infoHash":"0123456789abcdef0123456789abcdef01234567","fileIdx":4},{"name":"invalid","url":"javascript:alert(1)"}]})json","Torrentio",err);
   assert(streams.size()==2 && streams[0].is_playable() && !streams[1].is_playable());
   assert(streams[1].file_index==4);
   assert(torbox_request_url(2,3).find("torrent_id=2")!=std::string::npos);
