@@ -14,6 +14,7 @@ flags=(-std=c++17 -D_GNU_SOURCE -D_POSIX_C_SOURCE=200809L -D_XOPEN_SOURCE=700 -D
        -I "$sdk/samples/_common" -I vendor)
 clang++ "${flags[@]}" -c ps4/main.cpp -o "$work/obj/main.o"
 clang++ "${flags[@]}" -c src/core.cpp -o "$work/obj/core.o"
+clang++ "${flags[@]}" -c src/config_loader.cpp -o "$work/obj/config_loader.o"
 clang++ "${flags[@]}" -c ps4/native_net.cpp -o "$work/obj/native_net.o"
 clang++ "${flags[@]}" -c ps4/diagnostics.cpp -o "$work/obj/diagnostics.o"
 clang++ "${flags[@]}" -c ps4/video_player.cpp -o "$work/obj/video_player.o"
@@ -21,7 +22,7 @@ clang++ "${flags[@]}" -c ps4/source_resolver.cpp -o "$work/obj/source_resolver.o
 python3 scripts/patch-graphics.py "$sdk/samples/_common/graphics.cpp" "$work/graphics-fixed.cpp"
 clang++ "${flags[@]}" -c "$work/graphics-fixed.cpp" -o "$work/obj/graphics.o"
 ld.lld -m elf_x86_64 -pie --script "$sdk/link.x" --eh-frame-hdr \
-  "$work/obj/main.o" "$work/obj/core.o" "$work/obj/graphics.o" "$work/obj/native_net.o" "$work/obj/diagnostics.o" "$work/obj/video_player.o" "$work/obj/source_resolver.o" \
+  "$work/obj/main.o" "$work/obj/core.o" "$work/obj/config_loader.o" "$work/obj/graphics.o" "$work/obj/native_net.o" "$work/obj/diagnostics.o" "$work/obj/video_player.o" "$work/obj/source_resolver.o" \
   -L"$sdk/lib" -lc -lkernel -lc++ -lSceVideoOut -lScePad -lSceUserService -lSceSysmodule -lSceFreeType -lSceNet -lSceSsl -lSceHttp -lSceAvPlayer -lSceAudioOut \
   "$sdk/lib/crt1.o" -o "$work/app.elf"
 "$toolbin/create-fself" -in="$work/app.elf" -out="$work/app.oelf" \
@@ -44,7 +45,7 @@ contentid=IV0000-BREW20346_00-PLAYTORRIOPS4APP
 pkgtool="$toolbin/PkgTool.Core"
 "$pkgtool" sfo_new sce_sys/param.sfo
 "$pkgtool" sfo_setentry sce_sys/param.sfo APP_TYPE --type Integer --maxsize 4 --value 1
-"$pkgtool" sfo_setentry sce_sys/param.sfo APP_VER --type Utf8 --maxsize 8 --value 01.08
+"$pkgtool" sfo_setentry sce_sys/param.sfo APP_VER --type Utf8 --maxsize 8 --value 01.09
 "$pkgtool" sfo_setentry sce_sys/param.sfo ATTRIBUTE --type Integer --maxsize 4 --value 0
 "$pkgtool" sfo_setentry sce_sys/param.sfo CATEGORY --type Utf8 --maxsize 4 --value gd
 "$pkgtool" sfo_setentry sce_sys/param.sfo CONTENT_ID --type Utf8 --maxsize 48 --value "$contentid"
@@ -52,7 +53,7 @@ pkgtool="$toolbin/PkgTool.Core"
 "$pkgtool" sfo_setentry sce_sys/param.sfo SYSTEM_VER --type Integer --maxsize 4 --value 0
 "$pkgtool" sfo_setentry sce_sys/param.sfo TITLE --type Utf8 --maxsize 128 --value "PlayTorrio PS4 UI Test"
 "$pkgtool" sfo_setentry sce_sys/param.sfo TITLE_ID --type Utf8 --maxsize 12 --value "$titleid"
-"$pkgtool" sfo_setentry sce_sys/param.sfo VERSION --type Utf8 --maxsize 8 --value 01.08
+"$pkgtool" sfo_setentry sce_sys/param.sfo VERSION --type Utf8 --maxsize 8 --value 01.09
 files=("eboot.bin" "sce_sys/about/right.sprx" "sce_sys/param.sfo" "sce_sys/icon0.png" "assets/fonts/Gontserrat-Regular.ttf" "assets/fonts/OFL.txt")
 for f in sce_module/*; do if [[ -f "$f" ]]; then files+=("$f"); fi; done
 "$toolbin/create-gp4" -out pkg.gp4 --content-id="$contentid" --files "${files[*]}"
