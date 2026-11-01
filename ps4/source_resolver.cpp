@@ -72,6 +72,7 @@ std::string chooseFile(const ptv::Settings& s,const picojson::value& item,int fi
   }
   if(chosen<0) {
     int64_t biggest=0;
+    int bestScore=-1000000;
     for(const auto& file:files){
       if(!file.is<picojson::object>())continue;
       const auto& object=file.get<picojson::object>();
@@ -80,7 +81,10 @@ std::string chooseFile(const ptv::Settings& s,const picojson::value& item,int fi
       auto sz=object.find("size");if(sz!=object.end()&&sz->second.is<double>())
         bytes=(int64_t)sz->second.get<double>();
       int id=number(object,"id");
-      if(id>=0&&bytes>biggest){biggest=bytes;chosen=id;}
+      const int score=ptvplayback::score_file(text(object,"name"),bytes);
+      if(id>=0&&score>=0&&(score>bestScore||(score==bestScore&&bytes>biggest))){
+        bestScore=score;biggest=bytes;chosen=id;
+      }
     }
   }
   if(chosen<0)return {};
