@@ -54,11 +54,29 @@ inline int score(const ptv::Stream& stream){
   return quality(stream.name+" "+stream.title,path);
 }
 inline int score_torbox(const ptv::Stream& stream){
-  if(stream.info_hash.size()!=40)return -1000000;
+  if(stream.info_hash.size()!=40||
+     !std::all_of(stream.info_hash.begin(),stream.info_hash.end(),
+       [](unsigned char c){return std::isxdigit(c)!=0;}))
+    return -1000000;
   // TorBox is a debrid transport, not a transcoder. Give equivalent-quality
   // TorBox streams a modest preference without overvaluing poor codecs.
   const int metadata=quality(stream.name+" "+stream.title,"");
   return metadata<0?metadata:metadata+20;
+}
+// Apply the same source-quality policy to the on-screen Torrentio picker
+// and automatic fallback. A TorBox magnet is a stream candidate, not a
+// zero-quality placeholder: ranking it by return order can choose blurry SD.
+struct RankedSource {
+  int score=-1000000;
+  bool direct=false;
+};
+inline RankedSource rank(const ptv::Stream& stream,bool torboxConfigured){
+  const int directScore=score(stream);
+  const int torboxScore=torboxConfigured?score_torbox(stream):-1000000;
+  if(directScore<0&&torboxScore<0)return {};
+  if(directScore>=torboxScore&&directScore>=0)return {directScore,true};
+  if(torboxScore>=0)return {torboxScore,false};
+  return {};
 }
 inline int score_file(const std::string& name,int64_t bytes){
   const std::string path=lower(name);

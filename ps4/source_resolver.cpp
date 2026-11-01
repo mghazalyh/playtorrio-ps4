@@ -174,40 +174,22 @@ Selection resolve(const ptv::Settings& s,const std::string& mediaType,
   auto type=mediaType.empty()?s.diagnostic_type:mediaType;
   auto id=mediaId.empty()?s.diagnostic_id:mediaId;
   if(id.empty()){chosen.reason="Set diagnosticId in settings or select a My List movie";return chosen;}
-  // Prefer same ordered addon list as Windows/iPad Stremio configs.
-  for(const auto& addon:s.addons){
-    const std::string request=ptv::stream_url(addon,type,id);
-    if(request.empty())continue;
-    auto response=ps4net::request(request,"GET",{},"",768*1024);
-    if(response.status!=200||response.truncated||response.platform_error)continue;
-    std::string error;
-    auto streams=ptv::parse_streams(response.body,addon,error);
-    chosen.sources+=(int)streams.size();
-    // shadPS4 v0.20.0 currently only recognizes H.264, HEVC and AAC.
-    // Prefer H.264 / 1080p before unknown encodes or heavy 4K sources.
-    const ptv::Stream* preferred=nullptr;
-    int preferredScore=-1000000;
-    for(const auto& stream:streams){
-      const int score=ptvplayback::score(stream);
-      if(score>preferredScore){preferredScore=score;preferred=&stream;}
-    }
-    if(preferred&&preferredScore>=0){
-      chosen.url=preferred->url;
-      chosen.reason="Preferred HTTPS video source";
-      ps4diag::note("RESOLVE","PASS preferred native video candidate score="+
-        std::to_string(preferredScore)+" sources="+std::to_string(streams.size()));
-      return chosen;
-    }
-    for(const auto& stream:streams){
-      if(!s.torbox_api_key.empty()&&stream.info_hash.size()==40){
-        chosen.url=torboxHash(s,stream);
-        if(!chosen.url.empty()){
-          chosen.from_torbox=true;chosen.reason="Torrentio via TorBox";
-          ps4diag::note("RESOLVE","PASS addon torrent resolved using TorBox");
-          return chosen;
-        }
-      }
-    }
+  // Reuse the TMDB -> IMDb -> Torrentio source picker ranking.
+  // Direct HTTPS links must not silently outrank cleaner 1080p TorBox
+  // sources only because an addon returned them earlier in its list.
+  const auto available=list_sources(s,type,id);
+  chosen.sources=available.found;
+  // Automatic playback is a bounded fallback. Explicit user selection via
+  // resolve_selected remains unrestricted and always takes precedence.
+  size_t tried=0;
+  for(const auto& candidate:available.entries){
+    if(tried++>=8)break;
+    Selection prepared=resolve_selected(s,candidate);
+    if(prepared.url.empty())continue;
+    prepared.sources=available.found;
+    ps4diag::note("RESOLVE",prepared.from_torbox?
+      "PASS ranked Torrentio via TorBox":"PASS ranked direct source");
+    return prepared;
   }
   chosen.reason="No compatible stream found (or TorBox download is not cached)";
   ps4diag::note("RESOLVE","FAIL no compatible source; no private URL logged");
@@ -229,14 +211,21 @@ Choices list_sources(const ptv::Settings& settings,const std::string& type,const
     const auto streams=ptv::parse_streams(res.body,addon,error);
     found.found+=(int)streams.size();
     for(const auto& stream:streams){
-      if(found.entries.size()>=100)break;
-      const int score=ptvplayback::score(stream);
-      const bool direct=score>=0&&stream.url.rfind("https://",0)==0;
-      const bool debrid=!settings.torbox_api_key.empty()&&stream.info_hash.size()==40;
-      if(!direct&&!debrid)continue;
-      Candidate candidate;candidate.stream=stream;candidate.score=direct?score:0;
-      candidate.direct=direct;
-      found.entries.push_back(std::move(candidate));
+      const auto ranked=ptvplayback::rank(
+          stream,!settings.torbox_api_key.empty());
+      if(ranked.score<0)continue;
+      Candidate candidate;candidate.stream=stream;candidate.score=ranked.score;
+      candidate.direct=ranked.direct;
+      // Retain the best 100 across ALL configured addons. A low-quality
+      // first addon must not crowd out later Torrentio Full-HD matches.
+      if(found.entries.size()<100){
+        found.entries.push_back(std::move(candidate));
+      }else{
+        auto worst=std::min_element(found.entries.begin(),found.entries.end(),
+          [](const Candidate& a,const Candidate& b){return a.score<b.score;});
+        if(worst!=found.entries.end()&&candidate.score>worst->score)
+          *worst=std::move(candidate);
+      }
     }
   }
   std::stable_sort(found.entries.begin(),found.entries.end(),

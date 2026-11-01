@@ -1,3 +1,17 @@
+## 2026-11-01: TMDB → Torrentio → TorBox is the primary PS4 quality path
+
+**Priority clarified by owner:** TMDB is for discovering/selecting movies and episodes; the selected IMDb/episode identifier drives the configured Torrentio/Stremio addon; the resulting stream or magnet is resolved through TorBox when needed; AvPlayer must display the **original media** at normal movie quality. A low-resolution, blocky/game-like picture is not a usable result. This priority takes precedence over optional UI work and unrelated buffering tweaks.
+
+**Confirmed source-picker defect:** `ps4/source_resolver.cpp::list_sources` assigned **score=0** to every TorBox magnet candidate and retained only the first 100 returned sources before sorting. This could present a low-quality 480p source before a compatible 1080p Torrentio/TorBox encode, or omit later Full-HD results entirely. Automatic `resolve` independently preferred an early direct HTTPS link rather than the best ranked TorBox source.
+
+**Change:** `src/playback_choice.hpp` adds portable direct/TorBox ranking using codec, resolution, container and trusted 40-character hexadecimal hash metadata. `list_sources` uses those ranks for TorBox candidates, retains the strongest 100 across all configured addons, and sorts the result. Automatic fallback reuses exactly the displayed rankings and tries at most eight candidates. User-selected source identity and `fileIdx` are preserved, TorBox serves original unmodified bytes, and no stream URL is recorded. The local diagnostic direct-URL override, explicit existing TorBox file override, telemetry/read-ahead, and watchlist setting are untouched.
+
+**Test evidence:** Previous graphics optimization run [#195](https://github.com/mghazalyh/playtorrio-ps4/actions/runs/41280780093) PASS for portable tests, native OpenOrbis build, PKG and ZIP. New tests now cover Torrentio 1080p vs 480p/720p, malformed hashes, unsupported AV1, and TorBox configuration requirements. **This change's CI: PENDING; visual and audio runtime on shadPS4 and GoldHEN: NOT VERIFIED.** A correct source-quality rank is not proof that the decoder delivers a sharp movie image.
+
+**Next:** Verify CI; then run the actual TMDB → Torrentio → TorBox path and inspect decoder input dimensions, visible 1080p scanout, `VIDEO_QUALITY` conversion/blit timings, sound, and sustained video on shadPS4, then physical PS4. Do not claim picture quality is fixed without runtime evidence.
+
+---
+
 ## 2026-11-01: Full-HD CPU presentation optimization (PR #2, new CI PENDING)
 
 **Baseline checked before changes:** `ps4-fullhd-debrid-quality` at `b37e9d340db760d815fc5e6ec2b79fb1d7089dda`; native GitHub Actions run [#194](https://github.com/mghazalyh/playtorrio-ps4/actions/runs/41280209685) concluded SUCCESS. The protected v1.5.0 public release and `main` are unchanged.
