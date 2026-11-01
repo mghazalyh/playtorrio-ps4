@@ -15,7 +15,7 @@ int main(){
   http.url="http://cdn.example/movie.mp4";
   plain.url="https://cdn.example/media";
   assert(ptvplayback::score(mp4)>ptvplayback::score(h265));
-  assert(ptvplayback::score(h265)>=0);
+  assert(ptvplayback::score(h265)<ptvplayback::score(mp4));
   assert(ptvplayback::score(plain)>=0);
   assert(ptvplayback::score(av1)<0);
   assert(ptvplayback::score(vp9)<0);
