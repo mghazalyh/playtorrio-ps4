@@ -55,9 +55,11 @@ For **documentation-only** tasks, record what was documented without pretending 
 | ps4/main.cpp | PS4 entry point, screen rendering, controller tabs, startup/worker orchestration, catalog / playback UI |
 | ps4/native_net.cpp and .hpp | Native sceNet/sceSsl/sceHttp, bounded HTTPS requests, response status/errno and Range headers |
 | ps4/diagnostics.cpp and .hpp | FTP-readable structured redacted diagnostics; Triangle integration suite |
+| ps4/telemetry.cpp; src/telemetry_policy.hpp | Separate opt-in asynchronous private TorriODB failure telemetry; only fixed codes and bounded counters, never raw strings |
 | ps4/catalog_online.cpp and .hpp | Native TMDB trending/popular catalog and selected-title IMDb ID resolution |
 | ps4/source_resolver.cpp and .hpp | Stremio stream lookup, TorBox existing files/magnet flow, source selection |
-| ps4/video_player.cpp and .hpp | AvPlayer setup, file-replacement callbacks, remote seekable range cache, decoded NV12 presentation, AudioOut |
+| ps4/video_player.cpp and .hpp | AvPlayer setup, file-replacement callbacks, decoded NV12 presentation, AudioOut |
+| ps4/range_stream.cpp and .hpp; src/range_window.hpp | Dedicated seekable native HTTP 206 read-ahead with bounded sliding window |
 | ps4/avplayer_abi.hpp | Carefully verified native PS4 AvPlayer ABI definitions; modify only with ABI evidence |
 | src/core.cpp and .hpp | Portable settings, manifest/stream JSON parsing, TorBox and watchlist schemas |
 | src/config_loader.cpp and .hpp | Safe bounded local settings file reader |

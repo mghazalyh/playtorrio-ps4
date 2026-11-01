@@ -7,6 +7,7 @@
 #include <mutex>
 #include <vector>
 #include "avplayer_abi.hpp"
+#include "range_stream.hpp"
 class Scene2D;
 namespace ps4video {
 class Player {
@@ -47,17 +48,11 @@ private:
   std::atomic<bool> audioRunning_{false};
   std::thread audioThread_;
   int user_=-1;
-  std::string remoteUrl_;
-  uint64_t remoteBytes_=0;
-  uint64_t cacheOffset_=0;
-  std::vector<uint8_t> cache_;
+  RangeStream remote_;
   // Persist the last decoded picture while waiting for the next frame.
   std::vector<uint32_t> rgbPixels_;
   int rgbW_=0,rgbH_=0,rgbX_=0,rgbY_=0;
-  std::mutex remoteMutex_;
-  bool readFailureLogged_=false;
   std::atomic<uint64_t> remoteReads_{0};
-  std::atomic<uint64_t> rangeRequests_{0};
   int lastProgressBucket_=-1;
   bool loggedInvalidFrame_=false;
 };

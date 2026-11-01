@@ -17,31 +17,6 @@
 
 namespace ps4video {
 namespace {
-constexpr size_t kRemoteBlock=2*1024*1024;
-// Strictly parse RFC 7233 Content-Range: "bytes start-end/total".
-bool parseContentRange(const std::string& input,uint64_t& begin,
-                       uint64_t& finish,uint64_t& total){
-  const std::string prefix="bytes ";
-  if(input.compare(0,prefix.size(),prefix)!=0)return false;
-  size_t pos=prefix.size();
-  auto number=[&](uint64_t& out)->bool{
-    if(pos>=input.size()||input[pos]<'0'||input[pos]>'9')return false;
-    uint64_t value=0;
-    do{
-      const int digit=input[pos]-'0';
-      if(value>(std::numeric_limits<uint64_t>::max()-digit)/10)return false;
-      value=value*10+digit;
-      ++pos;
-    }while(pos<input.size()&&input[pos]>='0'&&input[pos]<='9');
-    out=value;
-    return true;
-  };
-  if(!number(begin)||pos>=input.size()||input[pos++]!='-'||
-     !number(finish)||pos>=input.size()||input[pos++]!='/'||
-     !number(total)||pos!=input.size())return false;
-  return total>0&&total<=(uint64_t)std::numeric_limits<int64_t>::max()&&
-         begin<=finish&&finish<total;
-}
 bool isHls(const std::string& url){
   const auto until=url.substr(0,url.find('?'));
   return until.find(".m3u8")!=std::string::npos;
@@ -58,7 +33,8 @@ bool Player::prepareRemote(const std::string& url,std::string& error){
   if(head.status!=200||head.platform_error!=0||!head.has_content_length||
      head.content_length==0||head.content_length>(uint64_t)std::numeric_limits<int64_t>::max()){
     error="Stream does not provide a usable HTTPS HEAD length";
-    ps4diag::note("VIDEO_IO","FAIL remote HEAD metadata");return false;
+    ps4diag::note("VIDEO_IO","FAIL remote HEAD metadata");
+    ps4diag::event(ptvtelemetry::Code::HeadFailed,head.status,head.platform_error);return false;
   }
   // Probe 64 KiB. Servers that ignore Range (HTTP 200) are not safe to
   // stream through shadPS4's buffering HTTP emulation.
@@ -67,31 +43,32 @@ bool Player::prepareRemote(const std::string& url,std::string& error){
   const auto first=ps4net::request(url,"GET",{{"Range",range}},"",(size_t)last+2);
   uint64_t a=0,b=0,n=0;
   if(first.status!=206||first.platform_error!=0||
-     !parseContentRange(first.content_range,a,b,n)||
+     !ptvrange::parse_content_range(first.content_range,a,b,n)||
      a!=0||b!=last||n!=head.content_length||
      first.truncated||first.body.size()!=last+1){
     error="CDN does not supply seekable HTTP 206 byte ranges";
+    ps4diag::event(ptvtelemetry::Code::RangeProbeFailed,first.status,first.platform_error);
     ps4diag::note("VIDEO_IO","FAIL Range http="+std::to_string(first.status)+
       " transport="+std::to_string(first.platform_error)+
       " bytes="+std::to_string(first.body.size())+
       " range_ok="+std::to_string(!first.content_range.empty()));
     return false;
   }
-  remoteUrl_=url;
-  remoteBytes_=n;
-  cacheOffset_=0;
-  cache_.assign(first.body.begin(),first.body.end());
-  readFailureLogged_=false;
   remoteReads_=0;
-  rangeRequests_=0;
+  if(!remote_.start(url,n,first.body,error)){
+    ps4diag::note("VIDEO_IO","FAIL starting linear read-ahead worker");
+    ps4diag::event(ptvtelemetry::Code::RemoteReadFailed);
+    return false;
+  }
   ps4diag::note("VIDEO_IO","PASS seekable media range, total bytes="+std::to_string(n));
   return true;
 }
 int Player::openRemote(void* ptr,const char* name){
   auto* self=static_cast<Player*>(ptr);
   const bool valid=self&&name&&std::strcmp(name,"/ptvremote.mp4")==0&&
-         !self->remoteUrl_.empty()&&self->remoteBytes_>0;
+         self->remote_.ready()&&self->remote_.size()>0;
   ps4diag::note("VIDEO_IO",valid?"PASS AvPlayer file opened":"FAIL AvPlayer file open");
+  if(!valid)ps4diag::event(ptvtelemetry::Code::RemoteOpenFailed);
   return valid?0:-1;
 }
 int Player::closeRemote(void* ptr){
@@ -99,51 +76,15 @@ int Player::closeRemote(void* ptr){
 }
 uint64_t Player::remoteSize(void* ptr){
   auto* self=static_cast<Player*>(ptr);
-  return self?self->remoteBytes_:0;
+  return self?self->remote_.size():0;
 }
 int Player::readRemote(void* ptr,uint8_t* out,uint64_t position,uint32_t length){
   auto* self=static_cast<Player*>(ptr);
-  if(!self||!out||length==0||self->remoteUrl_.empty())return -1;
+  if(!self||!out||length==0)return -1;
   const uint64_t calls=++self->remoteReads_;
   if(calls==1)ps4diag::note("VIDEO_IO","PASS first decoder read callback");
-  std::lock_guard<std::mutex> lock(self->remoteMutex_);
-  if(position>=self->remoteBytes_)return 0;
-  const uint32_t want=(uint32_t)std::min(uint64_t(length),self->remoteBytes_-position);
-  uint32_t copied=0;
-  while(copied<want){
-    const uint64_t offset=position+copied;
-    if(self->cache_.empty()||offset<self->cacheOffset_||
-       offset-self->cacheOffset_>=self->cache_.size()){
-      const uint64_t start=(offset/kRemoteBlock)*kRemoteBlock;
-      const uint64_t end=std::min(self->remoteBytes_-1,start+kRemoteBlock-1);
-      auto response=ps4net::request(self->remoteUrl_,"GET",
-          {{"Range","bytes="+std::to_string(start)+"-"+std::to_string(end)}},
-          "",(size_t)(end-start)+2);
-      uint64_t a=0,b=0,n=0;
-      if(response.status!=206||response.platform_error!=0||
-         response.truncated||!parseContentRange(response.content_range,a,b,n)||
-         a!=start||b!=end||n!=self->remoteBytes_||
-         response.body.size()!=end-start+1){
-        if(!self->readFailureLogged_){
-          ps4diag::note("VIDEO_IO","FAIL remote read http="+
-            std::to_string(response.status)+" transport="+
-            std::to_string(response.platform_error)+" errno="+
-            std::to_string(response.last_errno));
-          self->readFailureLogged_=true;
-        }
-        return copied?int(copied):-1;
-      }
-      self->cacheOffset_=start;
-      self->cache_.assign(response.body.begin(),response.body.end());
-      const uint64_t count=++self->rangeRequests_;
-      if(count==1||count%8==0)ps4diag::note("VIDEO_IO","PASS CDN range chunks="+std::to_string(count));
-    }
-    const size_t into=(size_t)(offset-self->cacheOffset_);
-    const uint32_t available=std::min((size_t)(want-copied),self->cache_.size()-into);
-    std::memcpy(out+copied,self->cache_.data()+into,available);
-    copied+=available;
-  }
-  return (int)copied;
+  // On this callback's small stack, never initiate native libSceHttp.
+  return self->remote_.read(out,position,length);
 }
 void* Player::allocate(void*,uint32_t alignment,uint32_t size){
   if(alignment<sizeof(void*))alignment=sizeof(void*);
@@ -157,12 +98,14 @@ bool Player::start(const std::string& url,std::string& error){
   if(url.rfind("https://",0)!=0&&url.rfind("http://",0)!=0&&url.rfind("/data/",0)!=0){
     error="Only HTTP(S) or /data/ video sources are supported";
     ps4diag::note("PLAYBACK","FAIL unsupported URL scheme (URL hidden)");
+    ps4diag::event(ptvtelemetry::Code::UnsupportedScheme);
     status_=Status::Failed;return false;
   }
   // Reject HLS playlists: shadPS4 AvPlayer currently does not implement
   // HLS. Downloading HLS as a regular file cannot produce playable video.
   if(isHls(url)){error="HLS playlist playback is unsupported by shadPS4";
     ps4diag::note("PLAYBACK","FAIL HLS format not supported by emulator");
+    ps4diag::event(ptvtelemetry::Code::UnsupportedHls);
     status_=Status::Failed;return false;
   }
   const bool remote=url.rfind("https://",0)==0||url.rfind("http://",0)==0;
@@ -171,6 +114,7 @@ bool Player::start(const std::string& url,std::string& error){
   int sys=sceSysmoduleLoadModule(ORBIS_SYSMODULE_AV_PLAYER);
   if(sys<0){last_error_=sys;error="Cannot load PS4 hardware AvPlayer";
     ps4diag::note("PLAYBACK","FAIL module load="+std::to_string(sys));
+    ps4diag::event(ptvtelemetry::Code::AvModuleFailed,0,sys);
     status_=Status::Failed;return false;
   }
   AvInitData init={};
@@ -191,16 +135,19 @@ bool Player::start(const std::string& url,std::string& error){
   init.defaultLanguage="en";
   handle_=sceAvPlayerInit(&init);
   if(!handle_){error="Cannot initialize PS4 video decoder";status_=Status::Failed;
-    ps4diag::note("PLAYBACK","FAIL sceAvPlayerInit returned null");return false;}
+    ps4diag::note("PLAYBACK","FAIL sceAvPlayerInit returned null");
+    ps4diag::event(ptvtelemetry::Code::AvInitFailed);return false;}
   // The emulator cannot open arbitrary HTTPS URLs as PS4 mounted files.
   // The guest file callbacks above present a seekable remote MP4-compatible
   // byte stream to the emulator's FFmpeg demuxer.
   int ret=sceAvPlayerAddSource(handle_,remote?"/ptvremote.mp4":url.c_str());
   if(ret<0){last_error_=ret;error="PS4 decoder rejected stream source";
     ps4diag::note("PLAYBACK","FAIL AddSource code="+std::to_string(ret));
+    ps4diag::event(ptvtelemetry::Code::AvSourceFailed,0,ret);
     sceAvPlayerClose(handle_);handle_=nullptr;status_=Status::Failed;return false;
   }
   ps4diag::note("PLAYBACK","PASS AvPlayer accepted video stream (URL excluded)");
+  ps4diag::event(ptvtelemetry::Code::PlaybackStarted);
   status_=Status::Opening;
   frames_=0;
   preferredTracks_=false;
@@ -216,19 +163,22 @@ void Player::audioLoop(){
   // PS4 AvPlayer delivers decoded audio separately; output signed 16-bit
   // stereo 48kHz if the incoming audio matches the hardware port.
   int sys=sceSysmoduleLoadModuleInternal(ORBIS_SYSMODULE_INTERNAL_AUDIOOUT);
-  if(sys<0){ps4diag::note("AUDIO","SKIP module load error="+std::to_string(sys));return;}
+  if(sys<0){ps4diag::note("AUDIO","SKIP module load error="+std::to_string(sys));
+    ps4diag::event(ptvtelemetry::Code::AudioModuleFailed,0,sys);return;}
   int ret=sceAudioOutInit();
   // 0x8026000E = ORBIS_AUDIO_OUT_ERROR_ALREADY_INIT.
   // shadPS4 and a real PS4 may have initialized AudioOut already.
   if(ret<0 && static_cast<uint32_t>(ret)!=0x8026000Eu){
-    ps4diag::note("AUDIO","SKIP init error="+std::to_string(ret));return;
+    ps4diag::note("AUDIO","SKIP init error="+std::to_string(ret));
+    ps4diag::event(ptvtelemetry::Code::AudioInitFailed,0,ret);return;
   }
   if(static_cast<uint32_t>(ret)==0x8026000Eu)
     ps4diag::note("AUDIO","INFO AudioOut already initialized; trying port");
   constexpr int samples=1024;
   const int port=sceAudioOutOpen(user_,ORBIS_AUDIO_OUT_PORT_TYPE_MAIN,0,
       samples,48000,ORBIS_AUDIO_OUT_PARAM_FORMAT_S16_STEREO);
-  if(port<0){ps4diag::note("AUDIO","SKIP port error="+std::to_string(port));return;}
+  if(port<0){ps4diag::note("AUDIO","SKIP port error="+std::to_string(port));
+    ps4diag::event(ptvtelemetry::Code::AudioPortFailed,0,port);return;}
   std::vector<uint8_t> output(samples*2*sizeof(int16_t),0);
   bool notified=false;
   while(audioRunning_){
@@ -238,7 +188,8 @@ void Player::audioLoop(){
        frame.data==nullptr){sceKernelUsleep(9000);continue;}
     if(frame.details.audio.channels!=2 ||
        frame.details.audio.sampleRate!=48000){
-      if(!notified){ps4diag::note("AUDIO","SKIP stream format not 48k stereo PCM");notified=true;}
+      if(!notified){ps4diag::note("AUDIO","SKIP stream format not 48k stereo PCM");
+         ps4diag::event(ptvtelemetry::Code::AudioUnsupportedFormat);notified=true;}
       sceKernelUsleep(8000);continue;
     }
     // Copy no more than the declared returned buffer size.
@@ -249,9 +200,11 @@ void Player::audioLoop(){
     int result=sceAudioOutOutput(port,output.data());
     if(result<0){
       ps4diag::note("AUDIO","FAIL sample output code="+std::to_string(result));
+       ps4diag::event(ptvtelemetry::Code::AudioOutputFailed,0,result);
       break;
     }
-    if(!notified){ps4diag::note("AUDIO","PASS first audio buffer submitted");notified=true;}
+    if(!notified){ps4diag::note("AUDIO","PASS first audio buffer submitted");
+       ps4diag::event(ptvtelemetry::Code::FirstAudioBuffer);notified=true;}
   }
   sceAudioOutClose(port);
 }
@@ -266,16 +219,18 @@ bool Player::render(Scene2D& scene){
   if(status_==Status::Opening){
     if(elapsed>=60){
       status_=Status::Failed;
-      ps4diag::note("PLAYBACK","FAIL no frames in 60s; reads="+
+      ps4diag::event(ptvtelemetry::Code::DecoderTimeout,0,0,remoteReads_.load());
+       ps4diag::note("PLAYBACK","FAIL no frames in 60s; reads="+
         std::to_string(remoteReads_.load())+" CDN_ranges="+
-        std::to_string(rangeRequests_.load()));
+        std::to_string(remote_.requests()));
       return false;
     }
     if(elapsed>=10&&elapsed/10!=lastProgressBucket_){
       lastProgressBucket_=elapsed/10;
-      ps4diag::note("PLAYBACK","BUFFERING seconds="+std::to_string(elapsed)+
+      ps4diag::event(ptvtelemetry::Code::Buffering,0,0,(uint64_t)elapsed);
+       ps4diag::note("PLAYBACK","BUFFERING seconds="+std::to_string(elapsed)+
         " reads="+std::to_string(remoteReads_.load())+
-        " CDN_ranges="+std::to_string(rangeRequests_.load()));
+        " CDN_ranges="+std::to_string(remote_.requests()));
     }
   }
   const bool active=sceAvPlayerIsActive(handle_);
@@ -299,7 +254,8 @@ bool Player::render(Scene2D& scene){
   if(w<2||h<2||w>4096||h>2160||pitch>8192){
     if(!loggedInvalidFrame_){
       loggedInvalidFrame_=true;
-      ps4diag::note("PLAYBACK","FAIL invalid frame dimensions="+
+      ps4diag::event(ptvtelemetry::Code::InvalidFrame,0,0,(uint64_t)w);
+       ps4diag::note("PLAYBACK","FAIL invalid frame dimensions="+
         std::to_string(w)+"x"+std::to_string(h)+" pitch="+std::to_string(pitch));
     }
     return false;
@@ -315,6 +271,7 @@ bool Player::render(Scene2D& scene){
     if(!loggedInvalidFrame_){
       loggedInvalidFrame_=true;
       ps4diag::note("PLAYBACK","FAIL invalid decoder crop offsets");
+       ps4diag::event(ptvtelemetry::Code::InvalidCrop);
     }
     return false;
   }
@@ -331,6 +288,7 @@ bool Player::render(Scene2D& scene){
     if(!loggedInvalidFrame_){
       loggedInvalidFrame_=true;
       ps4diag::note("PLAYBACK","FAIL crop-aware NV12 conversion");
+       ps4diag::event(ptvtelemetry::Code::ConversionFailed);
     }
     return false;
   }
@@ -347,9 +305,10 @@ bool Player::render(Scene2D& scene){
       std::to_string(outH)+" bt709="+std::to_string(visibleH>=720)+
       " full_range="+std::to_string(v.fullRange!=0)+
       " convert_ms="+std::to_string(convertMs));
-    ps4diag::note("PLAYBACK","VIDEO_PROGRESS frames="+std::to_string(frames_)+
+    ps4diag::event(ptvtelemetry::Code::PlaybackProgress,0,0,frames_);
+     ps4diag::note("PLAYBACK","VIDEO_PROGRESS frames="+std::to_string(frames_)+
       " elapsed_s="+std::to_string(elapsed)+
-      " ranges="+std::to_string(rangeRequests_.load()));
+      " ranges="+std::to_string(remote_.requests()));
   }
   if(!preferredTracks_){
     preferredTracks_=true;
@@ -387,6 +346,7 @@ bool Player::render(Scene2D& scene){
   if(status_==Status::Opening){
     status_=Status::Playing;
     ps4diag::note("PLAYBACK","PASS first decoded video frame rendered");
+     ps4diag::event(ptvtelemetry::Code::FirstFrame,0,0,frames_);
   }
   return true;
 }
@@ -411,10 +371,7 @@ void Player::close(){
     handle_=nullptr;
   }
   rgbPixels_.clear();rgbW_=rgbH_=0;
-  remoteUrl_.clear();
-  remoteBytes_=0;
-  cache_.clear();
-  cacheOffset_=0;
+  remote_.stop();
   status_=Status::Idle;
 }
 }

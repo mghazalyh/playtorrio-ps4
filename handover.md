@@ -1,3 +1,54 @@
+## 2026-11-01: seekable linear read-ahead experiment from two PS4 references
+
+References: thcolin/gamepad-media-center-aggregator (PS4 libmpv/FFmpeg GPU rendering) and Navinas3460/Stremio-PS4 (asynchronous RangeReader; parallel read-ahead; separate FFmpeg backend; native AvPlayer workarounds).
+
+On PR branch ps4-optin-telemetry-recovery, added src/range_window.hpp with strict Content-Range validation and deterministic bounded sliding-window policy. Added ps4/range_stream.hpp/.cpp to serve AvPlayer readOffset callbacks from a dedicated native networking worker rather than invoking libSceHttp on the decoder callback. Two 2 MiB blocks ahead and one behind are retained, with demand-first scheduling and seek reset, 30-second wait timeout, bounded retry and small initial-range immediate cache. No 2+ GB full downloads; original private telemetry remains opt-in and source-safe.
+
+This does not implement libmpv, FFmpeg decoding, or GPU texture presentation. Previous user-tested v1.3.4 blockiness predates v1.3.5 bilinear scaler and does not confirm the newer renderer. Streaming improvements can improve stalls and callback stack safety, not repair pixelation by themselves.
+
+Verification: previous PR CI run 186 passed. New read-ahead portable tests and OpenOrbis PKG have not yet been verified on this commit; PS4/emulator playback and TorriODB HTTP 201 uploads remain unverified. Do not merge or publish old v1.5.0 tag automatically.
+
+---
+## 2026-11-01: PS4 recovery implementation (pending CI and device verification)
+
+Owner requested an update to PS4 using v1.1.15 Windows/iOS diagnostics as the
+reference, especially **automatic opt-in private telemetry to TorriODB**,
+and inspection of the unfinished linear streaming plan.
+
+**New branch:** \`ps4-optin-telemetry-recovery\` from PS4 main
+\`4b7836684c3b06ad6f6c7028e3ab487420b6e1f6\`.
+**Windows/iOS reference branch:** \`parity-floating-player-both\`,
+commit \`532c3478bd8110e4bd15276fa52a488c31e5bc80\`.
+This PS4 change is not a v1.5.0 published build and must not be
+represented as emulator or physical-console verified.
+
+**Implemented on branch:** \`telemetryEnabled\` (OFF unless explicitly true);
+optional \`telemetryToken\` with fallback to FTP-local \`githubToken\`;
+**githubSyncEnabled stays unchanged and disabled by default**.
+Automatic failure-triggered, nonblocking and 30-second-throttled GitHub
+Contents uploads to \`mghazalyh/torriodb\` path
+\`playtorrio/diagnostics/ps4/player/\` using fixed-value codes and
+24-entry bounded reports, with no URLs, titles, transcripts, credentials,
+user/device identifiers or free-form log messages. Existing FTP local
+logs preserved. Added stage events for source resolution, remote range,
+AvPlayer, decoding timeouts and audio errors; serialized PS4 log and net
+initialization. Added host tests, PR-safe native workflow, and build linkage.
+
+**Linear streaming:** \`ps4/video_player.cpp\` already performs HTTP HEAD,
+64 KiB 206 probe, and aligned 2 MiB on-demand HTTP Range reads through
+AvPlayer's readOffset callback. Sequential reads *are* linear across
+blocks, but an actual continuous one-request stream or read-ahead prefetch
+is NOT implemented. Seek support must be preserved for media container
+metadata/indexes; no streaming rewrite in this telemetry patch.
+
+**Verification matrix:** Source changes pushed on branch: YES. Host telemetry
+tests: PENDING. OpenOrbis cross-compile and PKG: PENDING. shadPS4 video/audio:
+PENDING. Physical PS4: PENDING. Actual TorriODB upload: PENDING. Previous
+user-tested v1.3.4 emulator frames do not validate this new patch.
+No writes to ptv3 or private torriodb. Do not rerun or clobber v1.5.0 release.
+
+---
+
 # handover.md — PlayTorrio PS4 project continuity / Codex takeover
 
 > **Purpose:** The persistent, source-backed handover after chat-session loss. Detailed enough for Codex or another agent to resume with no dependence on the previous chat. Read root **AGENTS.md** first. Keep this document current on **every meaningful coding/debugging/release task**; append a Change Log entry and refresh the snapshot. It is intentionally long because several confirmed root causes were found through multiple experimental builds.
