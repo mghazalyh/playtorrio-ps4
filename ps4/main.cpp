@@ -683,7 +683,7 @@ int main(){
   sceUserServiceInitialize(&params);
   int user=-1;sceUserServiceGetInitialUser(&user);
   int pad=scePadOpen(user,0,0,nullptr);
-  Scene2D* screen=new Scene2D(1280,720,4);
+  Scene2D* screen=new Scene2D(1920,1080,4);
   if(!screen->Init(0xC000000,2)){
     ps4diag::note("BOOT","FAIL OpenOrbis Scene2D initialized with error");
     return 1;
@@ -1439,6 +1439,6 @@ int main(){
     screen->FrameBufferSwap();
     ++frame;
     if(frame==30)ps4diag::note("RENDER","PASS first 30 frames of UI presented");
-    sceKernelUsleep(42000);
+    sceKernelUsleep(viewing ? 1000 : 8000);
   }
 }
