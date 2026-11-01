@@ -36,7 +36,7 @@ public:
       std::lock_guard<std::mutex> guard(mutex_);
       enabled_=enabled;
       token_=enabled?std::move(token):std::string();
-      if(!enabled_){events_.clear();pending_=false;}
+      if(!enabled_){events_.clear();metrics_={};pending_=false;}
       if(enabled_&&!worker_.joinable()) {
         try {worker_=std::thread([this]{loop();});}
         catch(const std::exception&){enabled_=false;token_.clear();}
@@ -52,13 +52,27 @@ public:
     if(!enabled_||stopping_)return;
     if(events_.size()>=24)events_.erase(events_.begin());
     events_.push_back({++serial_,{code,std::time(nullptr),http,native,count}});
-    if(ptvtelemetry::failure(code)) {
+    // An opted-in session leaves a report even if nothing fails.
+    // Progress events already occur every 120 decoded frames; the worker
+    // limits upload attempts to one per 30 seconds.
+    if(ptvtelemetry::failure(code) ||
+       code==ptvtelemetry::Code::SettingsLoaded ||
+       code==ptvtelemetry::Code::PlaybackStarted ||
+       code==ptvtelemetry::Code::FirstFrame ||
+       code==ptvtelemetry::Code::PlaybackProgress ||
+       code==ptvtelemetry::Code::PlaybackStopped ||
+       code==ptvtelemetry::Code::PlaybackEnded) {
       pending_=true;
       cv_.notify_one();
     }
   }
+  void update(const ptvtelemetry::PlaybackMetrics& metrics) {
+    std::lock_guard<std::mutex> guard(mutex_);
+    if(enabled_&&!stopping_)metrics_=metrics;
+  }
 private:
   bool send(const std::vector<ptvtelemetry::Event>& events,
+            const ptvtelemetry::PlaybackMetrics& metrics,
             const std::string& token,uint64_t serial) {
     if(events.empty()||!ptvtelemetry::safe_token(token))return false;
     const std::time_t now=std::time(nullptr);
@@ -79,7 +93,7 @@ private:
     picojson::object body;
     body["message"]=picojson::value("diagnostics(ps4): allowlisted player report");
     body["branch"]=picojson::value("main");
-    body["content"]=picojson::value(ptv::base64_encode(ptvtelemetry::report(events)));
+    body["content"]=picojson::value(ptv::base64_encode(ptvtelemetry::report(events,metrics)));
     try {
       const auto response=ps4net::request(url,"PUT",{
         {"Authorization","Bearer "+token},
@@ -117,23 +131,29 @@ private:
       for(const auto& item:events_)batch.push_back(item.event);
       const uint64_t through=events_.empty()?0:events_.back().serial;
       const std::string token=token_;
+      const auto metrics=metrics_;
       pending_=false;
       last_attempt_=std::chrono::steady_clock::now();
       lock.unlock();
-      const bool sent=send(batch,token,through);
+      const bool sent=send(batch,metrics,token,through);
       lock.lock();
       if(sent) {
         events_.erase(std::remove_if(events_.begin(),events_.end(),
           [through](const Item& item){return item.serial<=through;}),
           events_.end());
+      }else if(enabled_) {
+        // A failed upload must not vanish if this session has no subsequent
+        // failure. Retry at the normal 30-second ceiling while the app runs.
+        // This remains bounded in memory; no unbounded queue or retry storm.
+        pending_=true;
       }
-      // No automatic retry storm. A later failure can trigger another send.
     }
   }
   std::mutex mutex_;
   std::condition_variable cv_;
   std::thread worker_;
   std::vector<Item> events_;
+  ptvtelemetry::PlaybackMetrics metrics_{};
   std::string token_;
   uint64_t serial_=0;
   bool stopping_=false,enabled_=false,pending_=false;
@@ -142,6 +162,9 @@ private:
 AutomaticUploader& uploader() {static AutomaticUploader instance;return instance;}
 }
 void configure_telemetry(const ptv::Settings& settings){uploader().configure(settings);}
+void playback_metrics(const ptvtelemetry::PlaybackMetrics& metrics) {
+  uploader().update(metrics);
+}
 void event(ptvtelemetry::Code code,int http_status,int native_error,uint64_t count){
   uploader().record(code,http_status,native_error,count);
 }

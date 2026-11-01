@@ -52,6 +52,46 @@ int main() {
   assert(records[1].get<picojson::object>().at("code").get<std::string>()=="remote_read_failed");
   assert(records[1].get<picojson::object>().at("http_status").get<double>()==429);
   assert(records[1].get<picojson::object>().at("failure").get<bool>());
+  // Nonfatal sessions must still be eligible for periodic diagnostics.
+  assert(!ptvtelemetry::failure(Code::PlaybackStopped));
+  assert(!ptvtelemetry::failure(Code::PlaybackPaused));
+  assert(ptvtelemetry::failure(Code::PlaybackStall));
+  ptvtelemetry::PlaybackMetrics snapshot;
+  snapshot.decoder_width=1920;
+  snapshot.decoder_height=1080;
+  snapshot.visible_width=1920;
+  snapshot.visible_height=1080;
+  snapshot.pitch=2048;
+  snapshot.output_width=1920;
+  snapshot.output_height=1080;
+  snapshot.frames=240;
+  snapshot.elapsed_ms=10000;
+  snapshot.effective_fps_x100=2400;
+  snapshot.avg_convert_us=12000;
+  snapshot.max_convert_us=27000;
+  snapshot.avg_blit_us=2500;
+  snapshot.max_frame_gap_ms=1600;
+  snapshot.stall_count=2;
+  snapshot.range_requests=9;
+  snapshot.audio_buffers=300;
+  snapshot.audio_format_unsupported=true;
+  picojson::value enriched;
+  assert(picojson::parse(enriched,ptvtelemetry::report(events,snapshot)).empty());
+  const auto& metrics=enriched.get<picojson::object>()
+      .at("playback").get<picojson::object>();
+  assert(metrics.at("decoder_width").get<double>()==1920);
+  assert(metrics.at("output_height").get<double>()==1080);
+  assert(metrics.at("effective_fps_x100").get<double>()==2400);
+  assert(metrics.at("avg_convert_us").get<double>()==12000);
+  assert(metrics.at("stall_count").get<double>()==2);
+  assert(metrics.at("audio_format_unsupported").get<bool>());
+  assert(ptvtelemetry::report(events,snapshot).find("https://")==std::string::npos);
+  assert(ptvtelemetry::report(events,snapshot).find("example_token")==std::string::npos);
+  snapshot.frames=UINT64_MAX;
+  picojson::value clipped;
+  assert(picojson::parse(clipped,ptvtelemetry::report(events,snapshot)).empty());
+  assert(clipped.get<picojson::object>().at("playback").get<picojson::object>()
+    .at("frames").get<double>()==1000000000.0);
   std::vector<ptvtelemetry::Event> many(26,events[1]);
   picojson::value again;
   assert(picojson::parse(again,ptvtelemetry::report(many)).empty());

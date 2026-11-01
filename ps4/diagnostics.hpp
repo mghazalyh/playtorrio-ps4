@@ -16,6 +16,7 @@ struct Summary {
 bool start_logging();
 void configure_telemetry(const ptv::Settings& settings);
 void event(ptvtelemetry::Code code,int http_status=0,int native_error=0,uint64_t count=0);
+void playback_metrics(const ptvtelemetry::PlaybackMetrics& metrics);
 void note(const std::string& component,const std::string& msg);
 Summary run(const ptv::Settings& config, bool githubWriteCheck=true);
 }

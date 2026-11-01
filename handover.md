@@ -1,3 +1,17 @@
+## 2026-11-01: Automatic in-depth PS4 runtime diagnostics to private TorriODB
+
+**Owner requirement:** On a normal TMDB → Torrentio → TorBox PS4 test, diagnostics should be uploaded with minimal manual log handling, including nonfatal pixelation/performance investigations. Original opt-in privacy boundary remains mandatory.
+
+**Audit of old implementation:** Only allowlisted failures queued an upload; `VIDEO_QUALITY` dimensions and conversion costs were **only in FTP-local logs**. Successful but blocky/stuttering playback often produced no private report. Failed uploads had no periodic retry, and the private TorriODB destination path did not exist when queried through the connected GitHub integration. No end-to-end HTTP 201 from shadPS4/PS4 has been proven.
+
+**Implementation:** `src/telemetry_policy.hpp`, `ps4/telemetry.cpp`, `ps4/diagnostics.hpp`, `ps4/video_player.cpp/.hpp`, and `tests/telemetry_test.cpp` now add fixed-shape numeric playback metrics to every report: decoded/cropped/output dimensions, pitch and full range, decoded frame count, elapsed time, effective FPS ×100, conversion and blit times in microseconds, largest gap between fresh decoded frames, detected stalls, CDN range requests, decoder read calls, audio output count and unsupported-audio flag. The always-bounded 24 event codes remain, with playback stopped/ended/paused/resumed and stall codes added. An opted-in application queues a startup receipt on `settings_loaded`, an initial playback report, first-frame report, periodic reports every 120 decoded frames (rate limited to one attempt per 30 seconds), and a stop report, even without fatal errors. Failed uploads automatically retry with the same 30-second ceiling while the app stays running. Explicit playback stalls above 1.5 seconds are reported. No titles, IMDb/TMDB IDs, URL, torrent hash, media bytes, keys or console identifier enter the report.
+
+**Configuration and test caveat:** Telemetry is still disabled by default; enable `telemetryEnabled=true` with a private repository Contents-write token in FTP-local `/data/playtorrio/settings.json` and restart. Keep `githubSyncEnabled=false`. **New CI and PS4/emulator runtime uploads remain PENDING.** A hard crash/power-off can still lose unsent events; no durable offline queue has been implemented. The numeric measures can expose low decoder resolution and frame pacing but cannot perfectly infer subjective sharpness or artifacts from the output pixels.
+
+**Next:** Confirm portable regression and native OpenOrbis package CI, then install this branch's experimental ZIP/PKG, verify `[TELEMETRY] PASS ... http=201` and an actual JSON report arriving under `playtorrio/diagnostics/ps4/player/` in private TorriODB. Compare the report's `playback.decoder_*`, `output_*`, `effective_fps_x100`, and `max_frame_gap_ms` with the on-screen result. Never equate CI with runtime success.
+
+---
+
 ## 2026-11-01: TMDB → Torrentio → TorBox is the primary PS4 quality path
 
 **Priority clarified by owner:** TMDB is for discovering/selecting movies and episodes; the selected IMDb/episode identifier drives the configured Torrentio/Stremio addon; the resulting stream or magnet is resolved through TorBox when needed; AvPlayer must display the **original media** at normal movie quality. A low-resolution, blocky/game-like picture is not a usable result. This priority takes precedence over optional UI work and unrelated buffering tweaks.

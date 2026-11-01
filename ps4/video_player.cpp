@@ -153,6 +153,13 @@ bool Player::start(const std::string& url,std::string& error){
   totalConvertUs_=0;
   totalBlitUs_=0;
   maxConvertUs_=0;
+  maxFrameGapMs_=stallCount_=0;
+  lastDecodedAt_={};lastStallEvent_={};
+  inputW_=inputH_=inputPitch_=visibleW_=visibleH_=0;
+  fullRange_=false;
+  audioBuffers_=0;
+  audioFormatUnsupported_=false;
+  ps4diag::playback_metrics({});
   preferredTracks_=false;
   lastProgressBucket_=-1;
   loggedInvalidFrame_=false;
@@ -191,6 +198,7 @@ void Player::audioLoop(){
        frame.data==nullptr){sceKernelUsleep(9000);continue;}
     if(frame.details.audio.channels!=2 ||
        frame.details.audio.sampleRate!=48000){
+      audioFormatUnsupported_=true;
       if(!notified){ps4diag::note("AUDIO","SKIP stream format not 48k stereo PCM");
          ps4diag::event(ptvtelemetry::Code::AudioUnsupportedFormat);notified=true;}
       sceKernelUsleep(8000);continue;
@@ -206,10 +214,40 @@ void Player::audioLoop(){
        ps4diag::event(ptvtelemetry::Code::AudioOutputFailed,0,result);
       break;
     }
+    ++audioBuffers_;
     if(!notified){ps4diag::note("AUDIO","PASS first audio buffer submitted");
        ps4diag::event(ptvtelemetry::Code::FirstAudioBuffer);notified=true;}
   }
   sceAudioOutClose(port);
+}
+void Player::publishMetrics(){
+  ptvtelemetry::PlaybackMetrics metrics;
+  metrics.decoder_width=(uint64_t)inputW_;
+  metrics.decoder_height=(uint64_t)inputH_;
+  metrics.pitch=(uint64_t)inputPitch_;
+  metrics.visible_width=(uint64_t)visibleW_;
+  metrics.visible_height=(uint64_t)visibleH_;
+  metrics.output_width=(uint64_t)rgbW_;
+  metrics.output_height=(uint64_t)rgbH_;
+  metrics.full_range=fullRange_;
+  metrics.frames=frames_;
+  const auto elapsed=std::chrono::duration_cast<std::chrono::milliseconds>(
+      std::chrono::steady_clock::now()-startTime_).count();
+  metrics.elapsed_ms=elapsed>0?(uint64_t)elapsed:0;
+  if(metrics.elapsed_ms>0)
+    metrics.effective_fps_x100=metrics.frames*100000ULL/metrics.elapsed_ms;
+  if(frames_){
+    metrics.avg_convert_us=totalConvertUs_/frames_;
+    metrics.avg_blit_us=totalBlitUs_/frames_;
+  }
+  metrics.max_convert_us=maxConvertUs_;
+  metrics.max_frame_gap_ms=maxFrameGapMs_;
+  metrics.stall_count=stallCount_;
+  metrics.range_requests=remote_.requests();
+  metrics.decoder_read_calls=remoteReads_.load();
+  metrics.audio_buffers=audioBuffers_.load();
+  metrics.audio_format_unsupported=audioFormatUnsupported_.load();
+  ps4diag::playback_metrics(metrics);
 }
 bool Player::render(Scene2D& scene){
   if(!handle_||status_==Status::Failed)return false;
@@ -240,6 +278,8 @@ bool Player::render(Scene2D& scene){
   if(!active){
     if(status_==Status::Playing){
       status_=Status::Ended;
+      publishMetrics();
+      ps4diag::event(ptvtelemetry::Code::PlaybackEnded,0,0,frames_);
       ps4diag::note("PLAYBACK","INFO video session became inactive after "+std::to_string(frames_)+" frames");
     }
     return false;
@@ -247,6 +287,21 @@ bool Player::render(Scene2D& scene){
   AvFrame frame={};
   const bool got=sceAvPlayerGetVideoDataEx(handle_,&frame);
   if(got==0||!frame.data){
+    // Cached display frames conceal decoder stalls visually; report missing
+    // fresh frames only during active playback, never during user pause.
+    const auto now=std::chrono::steady_clock::now();
+    if(frames_>0 && lastDecodedAt_!=std::chrono::steady_clock::time_point{}){
+      const auto gap=std::chrono::duration_cast<std::chrono::milliseconds>(
+          now-lastDecodedAt_).count();
+      if(gap>=1500 && (lastStallEvent_==std::chrono::steady_clock::time_point{} ||
+         now-lastStallEvent_>=std::chrono::seconds(5))){
+        lastStallEvent_=now;
+        ++stallCount_;
+        maxFrameGapMs_=std::max(maxFrameGapMs_,(uint64_t)gap);
+        publishMetrics();
+        ps4diag::event(ptvtelemetry::Code::PlaybackStall,0,0,(uint64_t)gap);
+      }
+    }
     if(!rgbPixels_.empty())scene.BlitVideoRgb32(rgbPixels_.data(),rgbX_,rgbY_,rgbW_,rgbH_);
     return !rgbPixels_.empty();
   }
@@ -295,6 +350,15 @@ bool Player::render(Scene2D& scene){
     return false;
   }
   const auto convertEnd=std::chrono::steady_clock::now();
+  if(lastDecodedAt_!=std::chrono::steady_clock::time_point{}){
+    const auto gap=std::chrono::duration_cast<std::chrono::milliseconds>(
+        convertEnd-lastDecodedAt_).count();
+    if(gap>0)maxFrameGapMs_=std::max(maxFrameGapMs_,(uint64_t)gap);
+  }
+  lastDecodedAt_=convertEnd;
+  inputW_=w;inputH_=h;inputPitch_=pitch;
+  visibleW_=visibleW;visibleH_=visibleH;
+  fullRange_=v.fullRange!=0;
   rgbW_=outW;rgbH_=outH;
   rgbX_=(1920-outW)/2;rgbY_=(1080-outH)/2;
   scene.BlitVideoRgb32(rgbPixels_.data(),rgbX_,rgbY_,outW,outH);
@@ -308,6 +372,7 @@ bool Player::render(Scene2D& scene){
   maxConvertUs_=std::max(maxConvertUs_,convertUs);
   ++frames_;
   if(frames_==1||frames_%120==0){
+    publishMetrics();
     const auto elapsed=std::chrono::duration_cast<std::chrono::seconds>(
       std::chrono::steady_clock::now()-startTime_).count();
     // Separate actual NV12 conversion cost from the VideoOut memory copy.
@@ -370,10 +435,13 @@ void Player::pauseToggle(){
   if(!handle_)return;
   if(status_==Status::Playing){
     int r=sceAvPlayerPause(handle_);
-    if(r>=0){status_=Status::Paused;ps4diag::note("PLAYBACK","PAUSE user control");}
+    if(r>=0){status_=Status::Paused;ps4diag::event(ptvtelemetry::Code::PlaybackPaused);
+      ps4diag::note("PLAYBACK","PAUSE user control");}
   }else if(status_==Status::Paused){
     int r=sceAvPlayerResume(handle_);
-    if(r>=0){status_=Status::Playing;ps4diag::note("PLAYBACK","RESUME user control");}
+    if(r>=0){status_=Status::Playing;lastDecodedAt_={};
+      ps4diag::event(ptvtelemetry::Code::PlaybackResumed);
+      ps4diag::note("PLAYBACK","RESUME user control");}
   }
 }
 void Player::close(){
@@ -383,6 +451,8 @@ void Player::close(){
   audioRunning_=false;
   if(audioThread_.joinable())audioThread_.join();
   if(handle_){
+    publishMetrics();
+    ps4diag::event(ptvtelemetry::Code::PlaybackStopped,0,0,frames_);
     sceAvPlayerStop(handle_);sceAvPlayerClose(handle_);
     handle_=nullptr;
   }
