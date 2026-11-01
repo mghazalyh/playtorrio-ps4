@@ -1,3 +1,12 @@
+## 2026-11-01: Native Full HD PS4 rendering experiment
+
+The project uses TorBox/debrid to fetch original-quality video; neither transport nor source compression is being modified. Prior code rendered every video at 1280x720 regardless of input resolution. This experiment increases VideoOut to 1920x1080, converts matching NV12 decoded 1080p directly without downscaling, adds an explicit physical 1080p BlitVideoRgb32, adapts existing 720p UI logical drawing through an OpenOrbis build-local patch, and removes the unconditional 42 ms sleep after VSYNC.
+
+Source scoring in src/playback_choice.hpp prioritizes labeled 1080p H.264/AAC MP4 over HD/SD low-quality and unsupported 4K HEVC candidates. This does NOT change underlying debrid stream bytes; the old torboxHash/chooseFile resolver still needs a separate verified integration before claiming TorBox-specific automatic file-choice changes.
+
+Implementation branch: ps4-fullhd-debrid-quality, based on ps4-optin-telemetry-recovery. Before build: TEST AND OPENORBIS VERIFICATION PENDING. Native 1080 framebuffer initialization, runtime FPS, PS4 pixel clarity, audio and emulator behavior remain unverified by source changes alone. The stable v1.5.0 release is not overwritten.
+
+---
 ## 2026-11-01: seekable linear read-ahead experiment from two PS4 references
 
 References: thcolin/gamepad-media-center-aggregator (PS4 libmpv/FFmpeg GPU rendering) and Navinas3460/Stremio-PS4 (asynchronous RangeReader; parallel read-ahead; separate FFmpeg backend; native AvPlayer workarounds).
