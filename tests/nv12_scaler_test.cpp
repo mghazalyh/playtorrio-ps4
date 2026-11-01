@@ -32,5 +32,19 @@ int main() {
   assert(!ptvvideo::scale_nv12(nullptr,4,4,4,0,0,4,4,4,4,false,pixels));
   assert(!ptvvideo::scale_nv12(black,4,4,4,1,0,2,2,4,4,false,pixels));
   assert(!ptvvideo::scale_nv12(black,4,4,4,0,0,4,4,1400,800,false,pixels));
-  puts("HD NV12 color and bilinear scaling regression passed");
+  // Full-HD decoder frames must preserve native image pixels rather than
+  // collapse a 1080p debrid stream to 720p.
+  std::vector<uint8_t> hd((size_t)1920*1080*3/2,128);
+  std::fill(hd.begin(),hd.begin()+(size_t)1920*1080,235);
+  assert(ptvvideo::scale_nv12(hd.data(),1920,1080,1920,0,0,
+      1920,1080,1920,1080,false,pixels));
+  assert(pixels.size()==(size_t)1920*1080);
+  assert((pixels[0]&0x00FFFFFFu)==0x00FFFFFFu);
+  assert((pixels.back()&0x00FFFFFFu)==0x00FFFFFFu);
+  // The 720p fallback image is still valid for older source resolutions.
+  assert(ptvvideo::scale_nv12(hd.data(),1920,1080,1920,0,0,
+      1920,1080,1280,720,false,pixels));
+  assert(!ptvvideo::scale_nv12(hd.data(),1920,1080,1920,0,0,
+      1920,1080,2048,1152,false,pixels));
+  puts("Native 1080p pixel fidelity and bilinear regression passed");
 }
