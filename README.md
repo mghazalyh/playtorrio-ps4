@@ -197,3 +197,33 @@ Unlike earlier diagnostic packages, v0.6 links **libSceAvPlayer** and requests d
 6. Retrieve the logs at `/data/playtorrio/logs/diagnostics.log` through GoldHEN FTP. Look for `[RESOLVE]`, `[PLAYBACK]`, and `[AUDIO]`. Especially useful: `PASS first decoded video frame rendered`.
 
 **Important limitations:** Console playback remains **unverified**. The PS4 hardware decoder may reject particular codecs/containers or signed CDN redirects. Basic audio output only supports 48 kHz stereo PCM. Subtitles, English audio-track switching, next-episode autoplay, seeking, and smooth GPU video rendering are still missing. This is not yet equivalent to Windows/iPad PlayTorrio. Use only streams you have permission to access.
+
+
+### PS4 private automatic playback diagnostics (opt in)
+
+The PS4 client now has fixed-code player, network, decoder and audio telemetry.
+After an opt-in, playback failures request asynchronous uploads to the private
+\`mghazalyh/torriodb\` repository at
+\`playtorrio/diagnostics/ps4/player/\`. At most 24 code/stage entries with
+bounded numeric statuses are included. Attempts are limited to once per
+30 seconds; a failed upload does not interrupt playback. No movie names,
+URLs, subtitles, media body bytes, token strings or console identifiers
+are included. This is independent of private library/watchlist sync.
+
+Use FTP to edit **\`/data/playtorrio/settings.json\`** (the committed
+\`config/settings.example.json\` is illustrative only). Set
+\`"telemetryEnabled": true\` and \`"telemetryToken":
+"YOUR_TORRIODB_CONTENTS_WRITE_KEY"\`. The existing \`githubToken\` is
+used only as a fallback when the new telemetryToken is empty. Keep
+\`"githubSyncEnabled": false\` to preserve local-only My List. The key
+needs Contents write access to the private TorriODB repository. Restart
+the app or reload Settings after editing the file. Disable uploads again by
+setting \`telemetryEnabled\` to false. Diagnostic status codes stay accessible
+via FTP in \`/data/playtorrio/logs/diagnostics.log\`.
+
+**Streaming investigation:** Native AvPlayer uses a 2 MiB bounded HTTP 206
+Range cache and advances through blocks sequentially when the decoder reads
+linearly, but it also supports decoder seeks and may read blocks out of order.
+This is not single-request continuous linear streaming or speculative
+prefetching. The existing seekable mechanism is preserved pending runtime
+evidence, since changing it could break MP4 seeking and shadPS4 buffering.
