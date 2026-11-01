@@ -46,5 +46,58 @@ int main() {
       1920,1080,1280,720,false,pixels));
   assert(!ptvvideo::scale_nv12(hd.data(),1920,1080,1920,0,0,
       1920,1080,2048,1152,false,pixels));
+  // Reference the original per-pixel equation independently: hoisting
+  // chroma terms must remain byte-identical for both BT.601 and BT.709.
+  const auto expected=[](int y,int u,int v,bool hd,bool full)->uint32_t {
+    const int ky=full?256:298;
+    const int rv=hd?(full?403:459):(full?359:409);
+    const int gu=hd?(full?48:55):(full?88:100);
+    const int gv=hd?(full?120:136):(full?183:208);
+    const int bu=hd?(full?475:541):(full?454:516);
+    const int value=y-(full?0:16);
+    const int U=u-128,V=v-128;
+    const auto clip=[](int n)->uint32_t {
+      return (uint32_t)std::max(0,std::min(255,n));
+    };
+    const uint32_t red=clip((ky*value+rv*V+128)>>8);
+    const uint32_t green=clip((ky*value-gu*U-gv*V+128)>>8);
+    const uint32_t blue=clip((ky*value+bu*U+128)>>8);
+    return 0x80000000u|(red<<16)|(green<<8)|blue;
+  };
+  constexpr int stride=16,planeW=12,planeH=8;
+  std::vector<uint8_t> cropped((size_t)stride*planeH*3/2,128);
+  for(int row=0;row<planeH;row++)
+    for(int col=0;col<planeW;col++)
+      cropped[(size_t)row*stride+col]=(uint8_t)((30+row*25+col*7)%256);
+  for(int row=0;row<planeH/2;row++)
+    for(int col=0;col<planeW/2;col++){
+      const size_t i=(size_t)stride*planeH+(size_t)row*stride+2*col;
+      cropped[i]=(uint8_t)(16+row*30+col*13);
+      cropped[i+1]=(uint8_t)(240-row*20-col*11);
+    }
+  for(bool full : {false,true}){
+    // Nonzero top/left crop with padded input pitch; no interpolator needed.
+    assert(ptvvideo::scale_nv12(cropped.data(),planeW,planeH,stride,
+        2,2,8,4,8,4,full,pixels));
+    for(int row=0;row<4;row++)
+      for(int col=0;col<8;col++){
+        const int inY=row+2,inX=col+2;
+        const int Y=cropped[(size_t)inY*stride+inX];
+        const size_t uv=(size_t)stride*planeH+(size_t)(inY/2)*stride+
+                        (size_t)(inX&~1);
+        assert(pixels[(size_t)row*8+col] ==
+               expected(Y,cropped[uv],cropped[uv+1],false,full));
+      }
+  }
+  // Full-HD non-neutral chroma, BT.709 limited and full-range values.
+  const size_t uvBase=(size_t)1920*1080;
+  hd[uvBase]=16;hd[uvBase+1]=240;
+  for(bool full : {false,true}){
+    assert(ptvvideo::scale_nv12(hd.data(),1920,1080,1920,0,0,
+        1920,1080,1920,1080,full,pixels));
+    assert(pixels[0]==expected(235,16,240,true,full));
+    assert(pixels[1]==pixels[0]);
+    assert(pixels[2]==expected(235,128,128,true,full));
+  }
   puts("Native 1080p pixel fidelity and bilinear regression passed");
 }

@@ -1,3 +1,17 @@
+## 2026-11-01: Full-HD CPU presentation optimization (PR #2, new CI PENDING)
+
+**Baseline checked before changes:** `ps4-fullhd-debrid-quality` at `b37e9d340db760d815fc5e6ec2b79fb1d7089dda`; native GitHub Actions run [#194](https://github.com/mghazalyh/playtorrio-ps4/actions/runs/41280209685) concluded SUCCESS. The protected v1.5.0 public release and `main` are unchanged.
+
+**Problem and evidence:** The exact-resolution NV12 converter allocated four bilinear sampling tables on every frame even though it immediately used the non-resizing path. Within that path it repeated U/V chroma coefficient work for both pixels in each NV12 chroma pair. The OpenOrbis 1080p clear used about 921,600 logical DrawPixel calls each frame, with extra logical-to-physical scaling.
+
+**Implementation:** `src/nv12_scaler.hpp` now skips sampler allocation for native-resolution frames and reuses each U/V conversion across two luma pixels while preserving existing RGB coefficients, 1:1 1080p output, crop and pitch handling. `scripts/patch-graphics.py` writes the 1080p frame clear directly to VideoOut rather than routing through the logical UI per-pixel transformation. `ps4/video_player.cpp/.hpp` now logs actual conversion and blit costs separately as `VIDEO_QUALITY convert_us`, `avg_convert_us`, `max_convert_us`, `blit_us`, and `avg_blit_us`; `convert_ms` remains for older log readers. `tests/nv12_scaler_test.cpp` checks full/limited range, BT.601/709, non-neutral chroma, padded pitch and crop against the previous per-pixel arithmetic.
+
+**Verification matrix:** Before this commit: baseline portable regressions, native compile/link, PKG and ZIP all PASS in #194. For this optimization: **PENDING** GitHub Actions host regressions and OpenOrbis cross-build. shadPS4 image clarity, visible FPS, sound, subtitles, TorriODB HTTP 201 uploads and actual GoldHEN 10.01 playback remain **NOT VERIFIED**.
+
+**Next:** Verify the new PR workflow, inspect `VIDEO_QUALITY` timings on shadPS4 and PS4, then evaluate a buffered off-thread conversion or native GPU texture compositor if CPU frame costs are still excessive. Preserve telemetry and range worker. Do not merge PR #2, alter TorBox media bytes, change library sync, or publish a new v1.5.0 release based on CI alone.
+
+---
+
 ## 2026-11-01: Native Full HD PS4 rendering experiment
 
 The project uses TorBox/debrid to fetch original-quality video; neither transport nor source compression is being modified. Prior code rendered every video at 1280x720 regardless of input resolution. This experiment increases VideoOut to 1920x1080, converts matching NV12 decoded 1080p directly without downscaling, adds an explicit physical 1080p BlitVideoRgb32, adapts existing 720p UI logical drawing through an OpenOrbis build-local patch, and removes the unconditional 42 ms sleep after VSYNC.

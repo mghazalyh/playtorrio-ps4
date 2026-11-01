@@ -150,6 +150,9 @@ bool Player::start(const std::string& url,std::string& error){
   ps4diag::event(ptvtelemetry::Code::PlaybackStarted);
   status_=Status::Opening;
   frames_=0;
+  totalConvertUs_=0;
+  totalBlitUs_=0;
+  maxConvertUs_=0;
   preferredTracks_=false;
   lastProgressBucket_=-1;
   loggedInvalidFrame_=false;
@@ -291,19 +294,33 @@ bool Player::render(Scene2D& scene){
     }
     return false;
   }
+  const auto convertEnd=std::chrono::steady_clock::now();
   rgbW_=outW;rgbH_=outH;
   rgbX_=(1920-outW)/2;rgbY_=(1080-outH)/2;
   scene.BlitVideoRgb32(rgbPixels_.data(),rgbX_,rgbY_,outW,outH);
+  const auto blitEnd=std::chrono::steady_clock::now();
+  const auto convertUs=(uint64_t)std::chrono::duration_cast<std::chrono::microseconds>(
+      convertEnd-convertStart).count();
+  const auto blitUs=(uint64_t)std::chrono::duration_cast<std::chrono::microseconds>(
+      blitEnd-convertEnd).count();
+  totalConvertUs_+=convertUs;
+  totalBlitUs_+=blitUs;
+  maxConvertUs_=std::max(maxConvertUs_,convertUs);
   ++frames_;
   if(frames_==1||frames_%120==0){
     const auto elapsed=std::chrono::duration_cast<std::chrono::seconds>(
       std::chrono::steady_clock::now()-startTime_).count();
-    const auto convertMs=std::chrono::duration_cast<std::chrono::milliseconds>(
-       std::chrono::steady_clock::now()-convertStart).count();
+    // Separate actual NV12 conversion cost from the VideoOut memory copy.
+    // Running averages expose sustained CPU pressure without logging media.
     ps4diag::note("PLAYBACK","VIDEO_QUALITY size="+std::to_string(outW)+"x"+
       std::to_string(outH)+" bt709="+std::to_string(visibleH>=720)+
       " full_range="+std::to_string(v.fullRange!=0)+
-      " convert_ms="+std::to_string(convertMs));
+      " convert_ms="+std::to_string(convertUs/1000)+
+      " convert_us="+std::to_string(convertUs)+
+      " avg_convert_us="+std::to_string(totalConvertUs_/frames_)+
+      " max_convert_us="+std::to_string(maxConvertUs_)+
+      " blit_us="+std::to_string(blitUs)+
+      " avg_blit_us="+std::to_string(totalBlitUs_/frames_));
     ps4diag::event(ptvtelemetry::Code::PlaybackProgress,0,0,frames_);
      ps4diag::note("PLAYBACK","VIDEO_PROGRESS frames="+std::to_string(frames_)+
       " elapsed_s="+std::to_string(elapsed)+

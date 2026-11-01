@@ -40,20 +40,10 @@ inline bool scale_nv12(const uint8_t* data,int width,int height,int pitch,
   const uint8_t* y=data+(size_t)cropTop*pitch+cropLeft;
   const uint8_t* uv=data+(size_t)pitch*height+
                      (size_t)(cropTop/2)*pitch+cropLeft;
-  const int chromaW=visibleW/2,chromaH=visibleH/2;
-  std::vector<Sample> xs((size_t)outputW),us((size_t)outputW);
-  std::vector<Sample> ys((size_t)outputH),vs((size_t)outputH);
-  for(int x=0;x<outputW;x++){
-    xs[x]=sample_at(x,outputW,visibleW);
-    us[x]=sample_at(x,outputW,chromaW);
-  }
-  for(int yy=0;yy<outputH;yy++){
-    ys[yy]=sample_at(yy,outputH,visibleH);
-    vs[yy]=sample_at(yy,outputH,chromaH);
-  }
   rgb.resize((size_t)outputW*outputH);
+  // Native-resolution presentation needs no interpolation table. Avoid
+  // allocating four temporary sample arrays for every decoded 1080p frame.
   // Preserve every source pixel when the debrid source is 1080p.
-  // The no-resize path bypasses bilinear sampler calculation entirely.
   if(outputW==visibleW&&outputH==visibleH){
     const bool hd=visibleH>=720;
     const int ky=fullRange?256:298;
@@ -66,17 +56,35 @@ inline bool scale_nv12(const uint8_t* data,int width,int height,int pitch,
       const auto* yy=y+(size_t)row*pitch;
       const auto* cc=uv+(size_t)(row/2)*pitch;
       uint32_t* output=rgb.data()+(size_t)row*visibleW;
-      for(int x=0;x<visibleW;x++){
-        const int Y=yy[x]-yOffset;
-        const int U=(int)cc[x&~1]-128;
-        const int V=(int)cc[(x&~1)+1]-128;
-        const uint32_t R=(uint32_t)bound8((ky*Y+rv*V+128)>>8);
-        const uint32_t G=(uint32_t)bound8((ky*Y-gu*U-gv*V+128)>>8);
-        const uint32_t B=(uint32_t)bound8((ky*Y+bu*U+128)>>8);
-        output[x]=0x80000000u|(R<<16)|(G<<8)|B;
+      // NV12 shares one U/V pair between two horizontal luma samples.
+      // Calculate the chroma terms once and convert both pixels exactly.
+      for(int x=0;x<visibleW;x+=2){
+        const int U=(int)cc[x]-128;
+        const int V=(int)cc[x+1]-128;
+        const int redChroma=rv*V;
+        const int greenChroma=gu*U+gv*V;
+        const int blueChroma=bu*U;
+        for(int lane=0;lane<2;lane++){
+          const int Y=ky*((int)yy[x+lane]-yOffset);
+          const uint32_t R=(uint32_t)bound8((Y+redChroma+128)>>8);
+          const uint32_t G=(uint32_t)bound8((Y-greenChroma+128)>>8);
+          const uint32_t B=(uint32_t)bound8((Y+blueChroma+128)>>8);
+          output[x+lane]=0x80000000u|(R<<16)|(G<<8)|B;
+        }
       }
     }
     return true;
+  }
+  const int chromaW=visibleW/2,chromaH=visibleH/2;
+  std::vector<Sample> xs((size_t)outputW),us((size_t)outputW);
+  std::vector<Sample> ys((size_t)outputH),vs((size_t)outputH);
+  for(int x=0;x<outputW;x++){
+    xs[x]=sample_at(x,outputW,visibleW);
+    us[x]=sample_at(x,outputW,chromaW);
+  }
+  for(int yy=0;yy<outputH;yy++){
+    ys[yy]=sample_at(yy,outputH,visibleH);
+    vs[yy]=sample_at(yy,outputH,chromaH);
   }
   // Limited/full RGB coefficients for HD BT.709 or SD BT.601.
   const bool hd=visibleH>=720;

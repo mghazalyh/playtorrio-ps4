@@ -44,6 +44,7 @@ private:
   std::chrono::steady_clock::time_point startTime_{};
   bool preferredTracks_=false;
   uint64_t frames_=0;
+  uint64_t totalConvertUs_=0,totalBlitUs_=0,maxConvertUs_=0;
   int last_error_=0;
   std::atomic<bool> audioRunning_{false};
   std::thread audioThread_;

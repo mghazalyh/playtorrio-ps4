@@ -83,9 +83,18 @@ out = out.replace(draw_pixel, """if (this->width == 1920 && this->height == 1080
 fill = "DrawRectangle(0, 0, this->width, this->height, color);"
 if out.count(fill) != 1:
     raise SystemExit("Unexpected OpenOrbis FrameBufferFill implementation")
-out = out.replace(fill,
-    "DrawRectangle(0, 0, this->width == 1920 ? 1280 : this->width, "
-    "this->height == 1080 ? 720 : this->height, color);", 1)
+out = out.replace(fill, r"""if (this->width == 1920 && this->height == 1080) {
+        // Fast scanout clear. Avoid 1280x720 DrawPixel calls and per-pixel
+        // coordinate scaling on every playback frame.
+        uint32_t* pixels = reinterpret_cast<uint32_t*>(
+            this->frameBuffers[this->activeFrameBufferIdx]);
+        const uint32_t packed = 0x80000000u | (uint32_t(color.r) << 16)
+                                | (uint32_t(color.g) << 8) | color.b;
+        const size_t count = (size_t)this->width * this->height;
+        for (size_t i = 0; i < count; ++i) pixels[i] = packed;
+    } else {
+        DrawRectangle(0, 0, this->width, this->height, color);
+    }""", 1)
 out += """
 #include <cstring>
 // Bitmap and poster draws use the same 720p logical coordinate system as UI.
