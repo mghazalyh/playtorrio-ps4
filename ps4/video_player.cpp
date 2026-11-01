@@ -211,7 +211,7 @@ void Player::audioLoop(){
 bool Player::render(Scene2D& scene){
   if(!handle_||status_==Status::Failed)return false;
   if(status_==Status::Paused){
-    if(!rgbPixels_.empty())scene.BlitRgb32(rgbPixels_.data(),rgbX_,rgbY_,rgbW_,rgbH_);
+    if(!rgbPixels_.empty())scene.BlitVideoRgb32(rgbPixels_.data(),rgbX_,rgbY_,rgbW_,rgbH_);
     return !rgbPixels_.empty();
   }
   // A decoder with no frames may still report Active. Never buffer forever.
@@ -244,7 +244,7 @@ bool Player::render(Scene2D& scene){
   AvFrame frame={};
   const bool got=sceAvPlayerGetVideoDataEx(handle_,&frame);
   if(got==0||!frame.data){
-    if(!rgbPixels_.empty())scene.BlitRgb32(rgbPixels_.data(),rgbX_,rgbY_,rgbW_,rgbH_);
+    if(!rgbPixels_.empty())scene.BlitVideoRgb32(rgbPixels_.data(),rgbX_,rgbY_,rgbW_,rgbH_);
     return !rgbPixels_.empty();
   }
   const auto& v=frame.details.video;
@@ -275,12 +275,11 @@ bool Player::render(Scene2D& scene){
     }
     return false;
   }
-  // Use the full 1280x720 PS4 video output surface, retaining letterboxing.
-  // Resample every pixel (bilinear Y and UV), with HD BT.709/full-range flags.
-  const float scale=std::min(1280.f/visibleW,720.f/visibleH);
+  // Native 1080p output: full-HD originals are never downscaled to 720p.
+  const float scale=std::min(1920.f/visibleW,1080.f/visibleH);
   const int outW=std::max(2,((int)(visibleW*scale)/2)*2);
   const int outH=std::max(2,((int)(visibleH*scale)/2)*2);
-  if(outW>1280||outH>720)return false;
+  if(outW>1920||outH>1080)return false;
   const auto convertStart=std::chrono::steady_clock::now();
   if(!ptvvideo::scale_nv12((const uint8_t*)frame.data,w,h,pitch,
                            cropL,cropT,visibleW,visibleH,outW,outH,
@@ -293,8 +292,8 @@ bool Player::render(Scene2D& scene){
     return false;
   }
   rgbW_=outW;rgbH_=outH;
-  rgbX_=(1280-outW)/2;rgbY_=(720-outH)/2;
-  scene.BlitRgb32(rgbPixels_.data(),rgbX_,rgbY_,outW,outH);
+  rgbX_=(1920-outW)/2;rgbY_=(1080-outH)/2;
+  scene.BlitVideoRgb32(rgbPixels_.data(),rgbX_,rgbY_,outW,outH);
   ++frames_;
   if(frames_==1||frames_%120==0){
     const auto elapsed=std::chrono::duration_cast<std::chrono::seconds>(
