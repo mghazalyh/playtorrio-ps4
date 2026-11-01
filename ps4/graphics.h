@@ -65,6 +65,7 @@ public:
 	void FrameBufferFill(Color color);
 	
 	void BlitRgb32(const uint32_t* src,int x,int y,int w,int h);
+	void BlitVideoRgb32(const uint32_t* src,int x,int y,int w,int h);
 	void DrawPixel(int x, int y, Color color);
 	void DrawRectangle(int x, int y, int w, int h, Color color);
 	
