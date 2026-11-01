@@ -58,21 +58,73 @@ needle = "void DrawPixel(int x, int y, Color color);"
 if header.count(needle) != 1:
     raise SystemExit("OpenOrbis graphics.h unexpected layout")
 header = header.replace(needle,
-    "void BlitRgb32(const uint32_t* src,int x,int y,int w,int h);\n\t" + needle)
+    "void BlitRgb32(const uint32_t* src,int x,int y,int w,int h);\n\t"
+    "void BlitVideoRgb32(const uint32_t* src,int x,int y,int w,int h);\n\t" + needle)
+# Keep the existing 1280x720 UI layout but emit actual 1920x1080 video.
+# DrawPixel is the shared UI primitive, so map each logical pixel to 1 or 2
+# physical scanout pixels without affecting the full-resolution video blitter.
+draw_pixel = "int pixel = (y * this->width) + x;"
+if out.count(draw_pixel) != 1:
+    raise SystemExit("Unexpected OpenOrbis DrawPixel implementation")
+out = out.replace(draw_pixel, """if (this->width == 1920 && this->height == 1080) {
+        if (x < 0 || y < 0 || x >= 1280 || y >= 720) return;
+        const int left = x * 3 / 2, right = (x + 1) * 3 / 2;
+        const int top = y * 3 / 2, bottom = (y + 1) * 3 / 2;
+        const uint32_t c = 0x80000000u | (uint32_t(color.r) << 16)
+                           | (uint32_t(color.g) << 8) | color.b;
+        uint32_t* p = reinterpret_cast<uint32_t*>(
+            this->frameBuffers[this->activeFrameBufferIdx]);
+        for (int yy = top; yy < bottom; yy++)
+            for (int xx = left; xx < right; xx++)
+                p[(size_t)yy * this->width + xx] = c;
+        return;
+    }
+    """ + draw_pixel, 1)
+fill = "DrawRectangle(0, 0, this->width, this->height, color);"
+if out.count(fill) != 1:
+    raise SystemExit("Unexpected OpenOrbis FrameBufferFill implementation")
+out = out.replace(fill,
+    "DrawRectangle(0, 0, this->width == 1920 ? 1280 : this->width, "
+    "this->height == 1080 ? 720 : this->height, color);", 1)
 out += """
 #include <cstring>
+// Bitmap and poster draws use the same 720p logical coordinate system as UI.
 void Scene2D::BlitRgb32(const uint32_t* src,int x,int y,int w,int h) {
-    if (!src || x<0 || y<0 || w<=0 || h<=0 ||
-        x>this->width || y>this->height ||
-        w>this->width-x || h>this->height-y) return;
-    uint32_t* buffer = reinterpret_cast<uint32_t*>(
+    if (!src||x<0||y<0||w<=0||h<=0) return;
+    uint32_t* target=reinterpret_cast<uint32_t*>(
         this->frameBuffers[this->activeFrameBufferIdx]);
-    for (int row=0;row<h;row++) {
+    if (this->width == 1920 && this->height == 1080) {
+        if (x >= 1280 || y >= 720 || w > 1280-x || h > 720-y) return;
+        for (int row=0;row<h;row++) {
+            const int top=(y+row)*3/2, bottom=(y+row+1)*3/2;
+            for (int col=0;col<w;col++) {
+                const int left=(x+col)*3/2,right=(x+col+1)*3/2;
+                const uint32_t pixel=src[(size_t)row*w+col];
+                for (int yy=top;yy<bottom;yy++)
+                    for (int xx=left;xx<right;xx++)
+                        target[(size_t)yy*this->width+xx]=pixel;
+            }
+        }
+        return;
+    }
+    if (x > this->width || y > this->height ||
+        w > this->width-x || h > this->height-y) return;
+    for (int row=0;row<h;row++)
+        std::memcpy(target+(size_t)(y+row)*this->width+x,
+                    src+(size_t)row*w,(size_t)w*sizeof(uint32_t));
+}
+// Decoded video bypasses UI scaling. 1080p inputs are copied 1:1.
+void Scene2D::BlitVideoRgb32(const uint32_t* src,int x,int y,int w,int h) {
+    if (!src||x<0||y<0||w<=0||h<=0||
+        x>this->width||y>this->height||
+        w>this->width-x||h>this->height-y) return;
+    uint32_t* buffer=reinterpret_cast<uint32_t*>(
+        this->frameBuffers[this->activeFrameBufferIdx]);
+    for (int row=0;row<h;row++)
         std::memcpy(buffer+(size_t)(y+row)*this->width+x,
                     src+(size_t)row*w,(size_t)w*sizeof(uint32_t));
-    }
 }
 """
 Path(sys.argv[3]).write_text(out)
 Path(sys.argv[4]).write_text(header)
-print("Patched local graphics copies: font blending and row-wise RGB32 blit")
+print("Patched OpenOrbis graphics: 1080p video scanout and 720p logical UI")
