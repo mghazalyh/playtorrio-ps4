@@ -2,6 +2,7 @@
 #include <string>
 #include <vector>
 #include "../src/core.hpp"
+#include "../src/telemetry_policy.hpp"
 namespace ps4diag {
 static const char* const logfile="/data/playtorrio/logs/diagnostics.log";
 static const char* const previous="/data/playtorrio/logs/previous.log";
@@ -13,6 +14,8 @@ struct Summary {
   std::string last="Not run yet";
 };
 bool start_logging();
+void configure_telemetry(const ptv::Settings& settings);
+void event(ptvtelemetry::Code code,int http_status=0,int native_error=0,uint64_t count=0);
 void note(const std::string& component,const std::string& msg);
 Summary run(const ptv::Settings& config, bool githubWriteCheck=true);
 }
