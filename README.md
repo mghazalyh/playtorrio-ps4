@@ -233,3 +233,8 @@ evidence, since changing it could break MP4 seeking and shadPS4 buffering.
 The native decoder now uses an independent libSceHttp network worker, inspired by the asynchronous RangeReader in Navinas3460/Stremio-PS4. Two 2 MiB HTTP 206 blocks are proactively fetched ahead of the decoder and one previous block is retained, with seek-aware eviction. AvPlayer file callbacks use cached bytes and do not perform network requests directly. Transfers remain bounded with exact Content-Range validation. This is a streaming reliability experiment, not a continuous single-GET download and not yet hardware tested.
 
 Video pixel quality is a separate rendering/decoder concern: the C++ bilinear NV12 path is preserved, while the PS4 GPU/libmpv and FFmpeg examples in GMCA and Stremio-PS4 remain reference material rather than implemented backends.
+
+
+### Experimental native 1080p decoder presentation
+
+The PS4 full-HD branch now renders to 1920x1080 VideoOut and does a direct native-pixel NV12-to-RGB conversion for 1080p streams rather than downscaling them to 1280x720. Build-local OpenOrbis drawing adaptations keep the original 720p logical UI coordinates usable while video uses direct 1:1 physical blits. It also removes a fixed 42ms frame delay after VSYNC. Source metadata ranking is adjusted toward original H.264/AAC 1080p MP4 streams; no media recompression occurs. This experimental code still requires native CI and console/emulator verification.
