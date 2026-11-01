@@ -36,7 +36,7 @@ inline bool scale_nv12(const uint8_t* data,int width,int height,int pitch,
      (cropLeft&1)||(cropTop&1)||visibleW<2||visibleH<2||
      (visibleW&1)||(visibleH&1)||cropLeft>width-visibleW||
      cropTop>height-visibleH||outputW<2||outputH<2||
-     outputW>1280||outputH>720)return false;
+     outputW>1920||outputH>1080)return false;
   const uint8_t* y=data+(size_t)cropTop*pitch+cropLeft;
   const uint8_t* uv=data+(size_t)pitch*height+
                      (size_t)(cropTop/2)*pitch+cropLeft;
@@ -52,6 +52,32 @@ inline bool scale_nv12(const uint8_t* data,int width,int height,int pitch,
     vs[yy]=sample_at(yy,outputH,chromaH);
   }
   rgb.resize((size_t)outputW*outputH);
+  // Preserve every source pixel when the debrid source is 1080p.
+  // The no-resize path bypasses bilinear sampler calculation entirely.
+  if(outputW==visibleW&&outputH==visibleH){
+    const bool hd=visibleH>=720;
+    const int ky=fullRange?256:298;
+    const int rv=hd?(fullRange?403:459):(fullRange?359:409);
+    const int gu=hd?(fullRange?48:55):(fullRange?88:100);
+    const int gv=hd?(fullRange?120:136):(fullRange?183:208);
+    const int bu=hd?(fullRange?475:541):(fullRange?454:516);
+    const int yOffset=fullRange?0:16;
+    for(int row=0;row<visibleH;row++){
+      const auto* yy=y+(size_t)row*pitch;
+      const auto* cc=uv+(size_t)(row/2)*pitch;
+      uint32_t* output=rgb.data()+(size_t)row*visibleW;
+      for(int x=0;x<visibleW;x++){
+        const int Y=yy[x]-yOffset;
+        const int U=(int)cc[x&~1]-128;
+        const int V=(int)cc[(x&~1)+1]-128;
+        const uint32_t R=(uint32_t)bound8((ky*Y+rv*V+128)>>8);
+        const uint32_t G=(uint32_t)bound8((ky*Y-gu*U-gv*V+128)>>8);
+        const uint32_t B=(uint32_t)bound8((ky*Y+bu*U+128)>>8);
+        output[x]=0x80000000u|(R<<16)|(G<<8)|B;
+      }
+    }
+    return true;
+  }
   // Limited/full RGB coefficients for HD BT.709 or SD BT.601.
   const bool hd=visibleH>=720;
   const int ky=fullRange?256:298;
