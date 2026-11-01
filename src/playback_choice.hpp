@@ -1,77 +1,35 @@
 #pragma once
-// TorBox / addon streams contain *original* media. Rank by native decoder
-// compatibility and 1080p detail, never transcode or rewrite their bytes.
+// A shared, conservative playback source preference. Does not guarantee codec
+// compatibility; actual streams remain verified by native AvPlayer.
 #include "core.hpp"
 #include <algorithm>
 #include <cctype>
-#include <cstdint>
 #include <string>
-
 namespace ptvplayback {
-inline std::string lower(std::string s){
-  std::transform(s.begin(),s.end(),s.begin(),
-    [](unsigned char c){return (char)std::tolower(c);});
-  return s;
-}
-inline bool contains(const std::string& source,const char* needle){
-  return source.find(needle)!=std::string::npos;
-}
-inline bool supported_metadata(const std::string& description) {
-  const auto s=lower(description);
-  return !contains(s,"av1")&&!contains(s,"av01")&&
-         !contains(s,"vp9")&&!contains(s,".m3u8");
-}
-inline int quality(const std::string& title,const std::string& file){
-  const std::string words=lower(title+" "+file);
-  if(!supported_metadata(words))return -1000000;
-  int result=100;
-  // AVPlayer is much more reliable with MP4 AVC/AAC than MKV/HEVC.
-  if(contains(words,".mp4")||contains(words,".m4v"))result+=75;
-  else if(contains(words,".mkv"))result+=5;
-  else if(contains(words,".ts"))result-=10;
-  if(contains(words,"h264")||contains(words,"h.264")||
-     contains(words,"x264")||contains(words,"avc"))result+=65;
-  if(contains(words,"h265")||contains(words,"h.265")||
-     contains(words,"x265")||contains(words,"hevc"))result-=50;
-  if(contains(words,"aac"))result+=18;
-  if(contains(words,"1080p")||contains(words,"1920x1080")||
-     contains(words,"fhd"))result+=95;
-  else if(contains(words,"720p")||contains(words,"1280x720"))result+=12;
-  else if(contains(words,"480p")||contains(words,"360p"))result-=150;
-  if(contains(words,"2160p")||contains(words,"4k")||
-     contains(words,"uhd"))result-=110;
-  if(contains(words,"hdr")||contains(words,"dovi")||
-     contains(words,"dolby vision")||contains(words,"10bit")||
-     contains(words,"10-bit"))result-=32;
-  if(contains(words,"camrip")||contains(words,"hdcam")||
-     contains(words,"telesync")||contains(words,"cam "))result-=250;
-  return result;
-}
 inline int score(const ptv::Stream& stream){
   if(stream.url.rfind("https://",0)!=0)return -1000000;
-  const auto path=stream.url.substr(0,stream.url.find('?'));
-  if(contains(lower(path),".m3u8"))return -1000000;
-  return quality(stream.name+" "+stream.title,path);
-}
-inline int score_torbox(const ptv::Stream& stream){
-  if(stream.info_hash.size()!=40)return -1000000;
-  // TorBox is a debrid transport, not a transcoder. Give equivalent-quality
-  // TorBox streams a modest preference without overvaluing poor codecs.
-  const int metadata=quality(stream.name+" "+stream.title,"");
-  return metadata<0?metadata:metadata+20;
-}
-inline int score_file(const std::string& name,int64_t bytes){
-  const std::string path=lower(name);
-  if(!(contains(path,".mp4")||contains(path,".m4v")||
-       contains(path,".mkv")||contains(path,".ts")))return -1000000;
-  int result=quality(name,path);
-  if(result<0)return result;
-  // Size matters only within the same advertised quality class, not
-  // enough to promote incompatible 4K HEVC over H.264 1080p.
-  if(bytes>0){
-    const int64_t mib=bytes/(1024LL*1024LL);
-    result+=(int)std::min<int64_t>(mib/512,12);
-  }
+  std::string description=stream.name+" "+stream.title;
+  std::transform(description.begin(),description.end(),description.begin(),
+    [](unsigned char c){return (char)std::tolower(c);});
+  std::string path=stream.url.substr(0,stream.url.find('?'));
+  std::transform(path.begin(),path.end(),path.begin(),
+    [](unsigned char c){return (char)std::tolower(c);});
+  const auto has=[&](const char* needle){
+    return description.find(needle)!=std::string::npos;
+  };
+  if(path.find(".m3u8")!=std::string::npos||has("av1")||
+     has("av01")||has("vp9"))return -1000000;
+  int result=100;
+  if(path.find(".mp4")!=std::string::npos||
+     path.find(".m4v")!=std::string::npos)result+=40;
+  else if(path.find(".mkv")!=std::string::npos)result+=8;
+  if(has("h264")||has("h.264")||has("x264")||has("avc"))result+=65;
+  if(has("h265")||has("h.265")||has("x265")||has("hevc"))result+=15;
+  if(has("aac"))result+=12;
+  if(has("1080p"))result+=35;
+  else if(has("720p"))result+=25;
+  if(has("2160p")||has("4k")||has("uhd"))result-=90;
+  if(has("hdr")||has("dolby vision")||has("dovi"))result-=20;
   return result;
 }
 }
