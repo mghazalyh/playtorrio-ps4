@@ -3,6 +3,8 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+  pull_request:
+    branches: [main]
 
 permissions:
   contents: write
@@ -19,6 +21,9 @@ jobs:
           /tmp/playtorrio-ps4-tests
           g++ -std=c++17 -Wall -Wextra -Werror src/core.cpp src/config_loader.cpp tests/config_loader_test.cpp -o /tmp/playtorrio-settings-loader-tests
           /tmp/playtorrio-settings-loader-tests
+          g++ -std=c++17 -Wall -Wextra -Werror src/core.cpp tests/telemetry_test.cpp -o /tmp/playtorrio-ps4-telemetry-tests
+          /tmp/playtorrio-ps4-telemetry-tests
+          g++ -std=c++17 -Wall -Wextra -Werror -fsyntax-only ps4/telemetry.cpp
           g++ -std=c++17 -Wall -Wextra -Werror src/catalog.cpp tests/catalog_test.cpp -o /tmp/playtorrio-ps4-catalog-tests
           /tmp/playtorrio-ps4-catalog-tests
           g++ -std=c++17 -Wall -Wextra -Werror src/core.cpp tests/playback_choice_test.cpp -o /tmp/playtorrio-playback-choice-tests
@@ -98,6 +103,7 @@ jobs:
             dist/*.zip
           if-no-files-found: error
       - name: Publish clearly labeled prototype release
+        if: github.event_name != 'pull_request'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -110,6 +116,7 @@ jobs:
               --notes "Advanced Discover follows the active Windows/iOS PlayTorrio v1.1.7 branch: optional title search, TMDB sort, origin country, language, year range and page navigation. Adds TMDB recommendations and local-only My List. Native PS4 runtime, image and playback tests still required. GitHub watchlist sync disabled."
           fi
       - name: Send emulator ZIP and experimental PKG to Telegram if configured
+        if: github.event_name != 'pull_request'
         env:
           BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           CHANNEL_ID: "-1003938575195"
