@@ -23,7 +23,10 @@ jobs:
           /tmp/playtorrio-settings-loader-tests
           g++ -std=c++17 -Wall -Wextra -Werror src/core.cpp tests/telemetry_test.cpp -o /tmp/playtorrio-ps4-telemetry-tests
           /tmp/playtorrio-ps4-telemetry-tests
+          g++ -std=c++17 -Wall -Wextra -Werror tests/range_window_test.cpp -o /tmp/ptv-linear-range-tests
+          /tmp/ptv-linear-range-tests
           g++ -std=c++17 -Wall -Wextra -Werror -fsyntax-only ps4/telemetry.cpp
+          g++ -std=c++17 -Wall -Wextra -Werror -fsyntax-only ps4/range_stream.cpp
           g++ -std=c++17 -Wall -Wextra -Werror src/catalog.cpp tests/catalog_test.cpp -o /tmp/playtorrio-ps4-catalog-tests
           /tmp/playtorrio-ps4-catalog-tests
           g++ -std=c++17 -Wall -Wextra -Werror src/core.cpp tests/playback_choice_test.cpp -o /tmp/playtorrio-playback-choice-tests

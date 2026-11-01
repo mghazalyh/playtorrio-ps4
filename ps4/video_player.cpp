@@ -17,31 +17,6 @@
 
 namespace ps4video {
 namespace {
-constexpr size_t kRemoteBlock=2*1024*1024;
-// Strictly parse RFC 7233 Content-Range: "bytes start-end/total".
-bool parseContentRange(const std::string& input,uint64_t& begin,
-                       uint64_t& finish,uint64_t& total){
-  const std::string prefix="bytes ";
-  if(input.compare(0,prefix.size(),prefix)!=0)return false;
-  size_t pos=prefix.size();
-  auto number=[&](uint64_t& out)->bool{
-    if(pos>=input.size()||input[pos]<'0'||input[pos]>'9')return false;
-    uint64_t value=0;
-    do{
-      const int digit=input[pos]-'0';
-      if(value>(std::numeric_limits<uint64_t>::max()-digit)/10)return false;
-      value=value*10+digit;
-      ++pos;
-    }while(pos<input.size()&&input[pos]>='0'&&input[pos]<='9');
-    out=value;
-    return true;
-  };
-  if(!number(begin)||pos>=input.size()||input[pos++]!='-'||
-     !number(finish)||pos>=input.size()||input[pos++]!='/'||
-     !number(total)||pos!=input.size())return false;
-  return total>0&&total<=(uint64_t)std::numeric_limits<int64_t>::max()&&
-         begin<=finish&&finish<total;
-}
 bool isHls(const std::string& url){
   const auto until=url.substr(0,url.find('?'));
   return until.find(".m3u8")!=std::string::npos;
@@ -68,7 +43,7 @@ bool Player::prepareRemote(const std::string& url,std::string& error){
   const auto first=ps4net::request(url,"GET",{{"Range",range}},"",(size_t)last+2);
   uint64_t a=0,b=0,n=0;
   if(first.status!=206||first.platform_error!=0||
-     !parseContentRange(first.content_range,a,b,n)||
+     !ptvrange::parse_content_range(first.content_range,a,b,n)||
      a!=0||b!=last||n!=head.content_length||
      first.truncated||first.body.size()!=last+1){
     error="CDN does not supply seekable HTTP 206 byte ranges";
@@ -79,20 +54,19 @@ bool Player::prepareRemote(const std::string& url,std::string& error){
       " range_ok="+std::to_string(!first.content_range.empty()));
     return false;
   }
-  remoteUrl_=url;
-  remoteBytes_=n;
-  cacheOffset_=0;
-  cache_.assign(first.body.begin(),first.body.end());
-  readFailureLogged_=false;
   remoteReads_=0;
-  rangeRequests_=0;
+  if(!remote_.start(url,n,first.body,error)){
+    ps4diag::note("VIDEO_IO","FAIL starting linear read-ahead worker");
+    ps4diag::event(ptvtelemetry::Code::RemoteReadFailed);
+    return false;
+  }
   ps4diag::note("VIDEO_IO","PASS seekable media range, total bytes="+std::to_string(n));
   return true;
 }
 int Player::openRemote(void* ptr,const char* name){
   auto* self=static_cast<Player*>(ptr);
   const bool valid=self&&name&&std::strcmp(name,"/ptvremote.mp4")==0&&
-         !self->remoteUrl_.empty()&&self->remoteBytes_>0;
+         self->remote_.ready()&&self->remote_.size()>0;
   ps4diag::note("VIDEO_IO",valid?"PASS AvPlayer file opened":"FAIL AvPlayer file open");
   if(!valid)ps4diag::event(ptvtelemetry::Code::RemoteOpenFailed);
   return valid?0:-1;
@@ -102,55 +76,15 @@ int Player::closeRemote(void* ptr){
 }
 uint64_t Player::remoteSize(void* ptr){
   auto* self=static_cast<Player*>(ptr);
-  return self?self->remoteBytes_:0;
+  return self?self->remote_.size():0;
 }
 int Player::readRemote(void* ptr,uint8_t* out,uint64_t position,uint32_t length){
   auto* self=static_cast<Player*>(ptr);
-  if(!self||!out||length==0||self->remoteUrl_.empty())return -1;
+  if(!self||!out||length==0)return -1;
   const uint64_t calls=++self->remoteReads_;
   if(calls==1)ps4diag::note("VIDEO_IO","PASS first decoder read callback");
-  std::lock_guard<std::mutex> lock(self->remoteMutex_);
-  if(position>=self->remoteBytes_)return 0;
-  const uint32_t want=(uint32_t)std::min(uint64_t(length),self->remoteBytes_-position);
-  uint32_t copied=0;
-  while(copied<want){
-    const uint64_t offset=position+copied;
-    if(self->cache_.empty()||offset<self->cacheOffset_||
-       offset-self->cacheOffset_>=self->cache_.size()){
-      const uint64_t start=(offset/kRemoteBlock)*kRemoteBlock;
-      const uint64_t end=std::min(self->remoteBytes_-1,start+kRemoteBlock-1);
-      auto response=ps4net::request(self->remoteUrl_,"GET",
-          {{"Range","bytes="+std::to_string(start)+"-"+std::to_string(end)}},
-          "",(size_t)(end-start)+2);
-      uint64_t a=0,b=0,n=0;
-      if(response.status!=206||response.platform_error!=0||
-         response.truncated||!parseContentRange(response.content_range,a,b,n)||
-         a!=start||b!=end||n!=self->remoteBytes_||
-         response.body.size()!=end-start+1){
-        if(!self->readFailureLogged_){
-          ps4diag::note("VIDEO_IO","FAIL remote read http="+
-            std::to_string(response.status)+" transport="+
-            std::to_string(response.platform_error)+" errno="+
-            std::to_string(response.last_errno));
-          ps4diag::event(ptvtelemetry::Code::RemoteReadFailed,
-            response.status,response.platform_error,calls);
-          self->readFailureLogged_=true;
-        }
-        return copied?int(copied):-1;
-      }
-      self->cacheOffset_=start;
-      self->cache_.assign(response.body.begin(),response.body.end());
-      const uint64_t count=++self->rangeRequests_;
-      if(count==1||count%8==0)
-        ps4diag::event(ptvtelemetry::Code::RemoteRangeFetched,206,0,count);
-      if(count==1||count%8==0)ps4diag::note("VIDEO_IO","PASS CDN range chunks="+std::to_string(count));
-    }
-    const size_t into=(size_t)(offset-self->cacheOffset_);
-    const uint32_t available=std::min((size_t)(want-copied),self->cache_.size()-into);
-    std::memcpy(out+copied,self->cache_.data()+into,available);
-    copied+=available;
-  }
-  return (int)copied;
+  // On this callback's small stack, never initiate native libSceHttp.
+  return self->remote_.read(out,position,length);
 }
 void* Player::allocate(void*,uint32_t alignment,uint32_t size){
   if(alignment<sizeof(void*))alignment=sizeof(void*);
@@ -288,7 +222,7 @@ bool Player::render(Scene2D& scene){
       ps4diag::event(ptvtelemetry::Code::DecoderTimeout,0,0,remoteReads_.load());
        ps4diag::note("PLAYBACK","FAIL no frames in 60s; reads="+
         std::to_string(remoteReads_.load())+" CDN_ranges="+
-        std::to_string(rangeRequests_.load()));
+        std::to_string(remote_.requests()));
       return false;
     }
     if(elapsed>=10&&elapsed/10!=lastProgressBucket_){
@@ -296,7 +230,7 @@ bool Player::render(Scene2D& scene){
       ps4diag::event(ptvtelemetry::Code::Buffering,0,0,(uint64_t)elapsed);
        ps4diag::note("PLAYBACK","BUFFERING seconds="+std::to_string(elapsed)+
         " reads="+std::to_string(remoteReads_.load())+
-        " CDN_ranges="+std::to_string(rangeRequests_.load()));
+        " CDN_ranges="+std::to_string(remote_.requests()));
     }
   }
   const bool active=sceAvPlayerIsActive(handle_);
@@ -374,7 +308,7 @@ bool Player::render(Scene2D& scene){
     ps4diag::event(ptvtelemetry::Code::PlaybackProgress,0,0,frames_);
      ps4diag::note("PLAYBACK","VIDEO_PROGRESS frames="+std::to_string(frames_)+
       " elapsed_s="+std::to_string(elapsed)+
-      " ranges="+std::to_string(rangeRequests_.load()));
+      " ranges="+std::to_string(remote_.requests()));
   }
   if(!preferredTracks_){
     preferredTracks_=true;
@@ -437,10 +371,7 @@ void Player::close(){
     handle_=nullptr;
   }
   rgbPixels_.clear();rgbW_=rgbH_=0;
-  remoteUrl_.clear();
-  remoteBytes_=0;
-  cache_.clear();
-  cacheOffset_=0;
+  remote_.stop();
   status_=Status::Idle;
 }
 }

@@ -1,3 +1,14 @@
+## 2026-11-01: seekable linear read-ahead experiment from two PS4 references
+
+References: thcolin/gamepad-media-center-aggregator (PS4 libmpv/FFmpeg GPU rendering) and Navinas3460/Stremio-PS4 (asynchronous RangeReader; parallel read-ahead; separate FFmpeg backend; native AvPlayer workarounds).
+
+On PR branch ps4-optin-telemetry-recovery, added src/range_window.hpp with strict Content-Range validation and deterministic bounded sliding-window policy. Added ps4/range_stream.hpp/.cpp to serve AvPlayer readOffset callbacks from a dedicated native networking worker rather than invoking libSceHttp on the decoder callback. Two 2 MiB blocks ahead and one behind are retained, with demand-first scheduling and seek reset, 30-second wait timeout, bounded retry and small initial-range immediate cache. No 2+ GB full downloads; original private telemetry remains opt-in and source-safe.
+
+This does not implement libmpv, FFmpeg decoding, or GPU texture presentation. Previous user-tested v1.3.4 blockiness predates v1.3.5 bilinear scaler and does not confirm the newer renderer. Streaming improvements can improve stalls and callback stack safety, not repair pixelation by themselves.
+
+Verification: previous PR CI run 186 passed. New read-ahead portable tests and OpenOrbis PKG have not yet been verified on this commit; PS4/emulator playback and TorriODB HTTP 201 uploads remain unverified. Do not merge or publish old v1.5.0 tag automatically.
+
+---
 ## 2026-11-01: PS4 recovery implementation (pending CI and device verification)
 
 Owner requested an update to PS4 using v1.1.15 Windows/iOS diagnostics as the
