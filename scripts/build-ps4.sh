@@ -19,6 +19,7 @@ clang++ "${flags[@]}" -c src/catalog.cpp -o "$work/obj/catalog.o"
 clang++ "${flags[@]}" -c ps4/catalog_online.cpp -o "$work/obj/catalog_online.o"
 clang++ "${flags[@]}" -c ps4/native_net.cpp -o "$work/obj/native_net.o"
 clang++ "${flags[@]}" -c ps4/diagnostics.cpp -o "$work/obj/diagnostics.o"
+clang++ "${flags[@]}" -c ps4/telemetry.cpp -o "$work/obj/telemetry.o"
 clang++ "${flags[@]}" -c ps4/video_player.cpp -o "$work/obj/video_player.o"
 clang++ "${flags[@]}" -c ps4/source_resolver.cpp -o "$work/obj/source_resolver.o"
 clang++ "${flags[@]}" -c ps4/poster_cache.cpp -o "$work/obj/poster_cache.o"
@@ -26,7 +27,7 @@ clang++ "${flags[@]}" -c ps4/advanced_discover.cpp -o "$work/obj/advanced_discov
 python3 scripts/patch-graphics.py "$sdk/samples/_common/graphics.cpp" "$sdk/samples/_common/graphics.h" "$work/graphics-fixed.cpp" "$work/graphics.h"
 clang++ "${flags[@]}" -c "$work/graphics-fixed.cpp" -o "$work/obj/graphics.o"
 ld.lld -m elf_x86_64 -pie --script "$sdk/link.x" --eh-frame-hdr \
-  "$work/obj/main.o" "$work/obj/core.o" "$work/obj/config_loader.o" "$work/obj/catalog.o" "$work/obj/catalog_online.o" "$work/obj/graphics.o" "$work/obj/native_net.o" "$work/obj/diagnostics.o" "$work/obj/video_player.o" "$work/obj/source_resolver.o" "$work/obj/poster_cache.o" "$work/obj/advanced_discover.o" \
+  "$work/obj/main.o" "$work/obj/core.o" "$work/obj/config_loader.o" "$work/obj/catalog.o" "$work/obj/catalog_online.o" "$work/obj/graphics.o" "$work/obj/native_net.o" "$work/obj/diagnostics.o" "$work/obj/telemetry.o" "$work/obj/video_player.o" "$work/obj/source_resolver.o" "$work/obj/poster_cache.o" "$work/obj/advanced_discover.o" \
   -L"$sdk/lib" -lc -lkernel -lc++ -lSceVideoOut -lScePad -lSceUserService -lSceSysmodule -lSceFreeType -lSceNet -lSceSsl -lSceHttp -lSceAvPlayer -lSceAudioOut \
   "$sdk/lib/crt1.o" -o "$work/app.elf"
 "$toolbin/create-fself" -in="$work/app.elf" -out="$work/app.oelf" \
