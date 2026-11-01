@@ -31,7 +31,7 @@ int main() {
   for(uint32_t p:pixels)assert((p&0x00FFFFFFu)==0x00FFFFFFu);
   assert(!ptvvideo::scale_nv12(nullptr,4,4,4,0,0,4,4,4,4,false,pixels));
   assert(!ptvvideo::scale_nv12(black,4,4,4,1,0,2,2,4,4,false,pixels));
-  assert(!ptvvideo::scale_nv12(black,4,4,4,0,0,4,4,1400,800,false,pixels));
+  assert(!ptvvideo::scale_nv12(black,4,4,4,0,0,4,4,2048,1152,false,pixels));
   // Full-HD decoder frames must preserve native image pixels rather than
   // collapse a 1080p debrid stream to 720p.
   std::vector<uint8_t> hd((size_t)1920*1080*3/2,128);
