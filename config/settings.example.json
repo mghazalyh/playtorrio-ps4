@@ -6,6 +6,8 @@
   "torboxApiKey": "PASTE_YOUR_TORBOX_API_KEY_HERE",
   "githubSyncEnabled": false,
   "githubToken": "",
+  "telemetryEnabled": false,
+  "telemetryToken": "",
   "englishAudio": true,
   "englishSubtitles": true,
   "diagnosticType": "movie",
