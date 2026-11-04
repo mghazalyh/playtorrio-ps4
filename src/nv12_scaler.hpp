@@ -7,6 +7,10 @@
 #include <cstdint>
 #include <vector>
 
+#if defined(__SSE2__)
+#include <emmintrin.h>
+#endif
+
 namespace ptvvideo {
 struct Sample {
   int first=0;
@@ -27,6 +31,81 @@ inline int mix8(int a,int b,int w) {
 inline int bound8(int v) {
   return std::max(0,std::min(255,v));
 }
+
+// PS4 Jaguar and x86-64 shadPS4 hosts support SSE2. Convert eight native
+// resolution pixels at a time using signed 32-bit intermediates. Keeping the
+// original fixed-point coefficients, rounding, clipping and 0x80 alpha makes
+// this bit-exact with the portable scalar path, including out-of-range YUV.
+inline bool native_sse2_enabled() {
+#if defined(__SSE2__)
+  return true;
+#else
+  return false;
+#endif
+}
+
+#if defined(__SSE2__)
+inline int native_nv12_row_sse2(const uint8_t* y,const uint8_t* uv,
+                               uint32_t* pixels,int width,int ky,int rv,
+                               int gu,int gv,int bu,int yOffset) {
+  const __m128i zero=_mm_setzero_si128();
+  const __m128i chroma128=_mm_set1_epi16(128);
+  const __m128i yBias=_mm_set1_epi16(static_cast<short>(yOffset));
+  const __m128i uvMask=_mm_set1_epi32(0x0000ffff);
+  const __m128i kyMul=_mm_set1_epi32(ky);
+  const __m128i rvMul=_mm_set1_epi32(rv);
+  const __m128i buMul=_mm_set1_epi32(bu);
+  const __m128i greenMul=_mm_set1_epi32((gv<<16)|gu);
+  const __m128i round=_mm_set1_epi32(128);
+  const __m128i alpha=_mm_set1_epi8(static_cast<char>(0x80));
+  int x=0;
+  for(;x+7<width;x+=8){
+    const __m128i luma=_mm_sub_epi16(
+        _mm_unpacklo_epi8(_mm_loadl_epi64(
+            reinterpret_cast<const __m128i*>(y+x)),zero),yBias);
+    const __m128i chroma=_mm_unpacklo_epi8(_mm_loadl_epi64(
+        reinterpret_cast<const __m128i*>(uv+x)),zero);
+    const __m128i u=_mm_sub_epi16(_mm_shufflehi_epi16(
+        _mm_shufflelo_epi16(_mm_and_si128(chroma,uvMask),
+            _MM_SHUFFLE(2,2,0,0)),_MM_SHUFFLE(2,2,0,0)),chroma128);
+    const __m128i v=_mm_sub_epi16(_mm_shufflehi_epi16(
+        _mm_shufflelo_epi16(_mm_srli_epi32(chroma,16),
+            _MM_SHUFFLE(2,2,0,0)),_MM_SHUFFLE(2,2,0,0)),chroma128);
+    const __m128i y0=_mm_madd_epi16(_mm_unpacklo_epi16(luma,zero),kyMul);
+    const __m128i y1=_mm_madd_epi16(_mm_unpackhi_epi16(luma,zero),kyMul);
+    const __m128i r0=_mm_srai_epi32(_mm_add_epi32(
+        _mm_add_epi32(y0,_mm_madd_epi16(_mm_unpacklo_epi16(v,zero),rvMul)),
+        round),8);
+    const __m128i r1=_mm_srai_epi32(_mm_add_epi32(
+        _mm_add_epi32(y1,_mm_madd_epi16(_mm_unpackhi_epi16(v,zero),rvMul)),
+        round),8);
+    const __m128i g0=_mm_srai_epi32(_mm_add_epi32(
+        _mm_sub_epi32(y0,_mm_madd_epi16(_mm_unpacklo_epi16(u,v),greenMul)),
+        round),8);
+    const __m128i g1=_mm_srai_epi32(_mm_add_epi32(
+        _mm_sub_epi32(y1,_mm_madd_epi16(_mm_unpackhi_epi16(u,v),greenMul)),
+        round),8);
+    const __m128i b0=_mm_srai_epi32(_mm_add_epi32(
+        _mm_add_epi32(y0,_mm_madd_epi16(_mm_unpacklo_epi16(u,zero),buMul)),
+        round),8);
+    const __m128i b1=_mm_srai_epi32(_mm_add_epi32(
+        _mm_add_epi32(y1,_mm_madd_epi16(_mm_unpackhi_epi16(u,zero),buMul)),
+        round),8);
+    const __m128i r8=_mm_packus_epi16(_mm_packs_epi32(r0,r1),zero);
+    const __m128i g8=_mm_packus_epi16(_mm_packs_epi32(g0,g1),zero);
+    const __m128i b8=_mm_packus_epi16(_mm_packs_epi32(b0,b1),zero);
+    const __m128i bg=_mm_unpacklo_epi8(b8,g8);
+    const __m128i ra=_mm_unpacklo_epi8(r8,alpha);
+    _mm_storeu_si128(reinterpret_cast<__m128i*>(pixels+x),
+                     _mm_unpacklo_epi16(bg,ra));
+    _mm_storeu_si128(reinterpret_cast<__m128i*>(pixels+x+4),
+                     _mm_unpackhi_epi16(bg,ra));
+  }
+  // Native cropped widths need not be divisible by eight; the caller
+  // converts the remaining even number of pixels via the scalar path.
+  return x;
+}
+#endif
 inline bool scale_nv12(const uint8_t* data,int width,int height,int pitch,
                        int cropLeft,int cropTop,int visibleW,int visibleH,
                        int outputW,int outputH,bool fullRange,
@@ -58,7 +137,12 @@ inline bool scale_nv12(const uint8_t* data,int width,int height,int pitch,
       uint32_t* output=rgb.data()+(size_t)row*visibleW;
       // NV12 shares one U/V pair between two horizontal luma samples.
       // Calculate the chroma terms once and convert both pixels exactly.
-      for(int x=0;x<visibleW;x+=2){
+      int processed=0;
+#if defined(__SSE2__)
+      processed=native_nv12_row_sse2(yy,cc,output,visibleW,ky,
+                                    rv,gu,gv,bu,yOffset);
+#endif
+      for(int x=processed;x<visibleW;x+=2){
         const int U=(int)cc[x]-128;
         const int V=(int)cc[x+1]-128;
         const int redChroma=rv*V;

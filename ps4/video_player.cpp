@@ -380,6 +380,8 @@ bool Player::render(Scene2D& scene){
     ps4diag::note("PLAYBACK","VIDEO_QUALITY size="+std::to_string(outW)+"x"+
       std::to_string(outH)+" bt709="+std::to_string(visibleH>=720)+
       " full_range="+std::to_string(v.fullRange!=0)+
+      " native_sse2="+std::to_string(
+          (outW==visibleW&&outH==visibleH&&ptvvideo::native_sse2_enabled())?1:0)+
       " convert_ms="+std::to_string(convertUs/1000)+
       " convert_us="+std::to_string(convertUs)+
       " avg_convert_us="+std::to_string(totalConvertUs_/frames_)+

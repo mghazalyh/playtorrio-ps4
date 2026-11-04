@@ -1,3 +1,13 @@
+## 2026-11-04: Bit-exact SSE2 Full-HD conversion optimization (PR #2)
+
+**Current branch and verification baseline:** ps4-fullhd-debrid-quality HEAD 7d449f4f13bdcba61d62e9a3f8cf3cabc27a2c6e; [PS4 CI #197](https://github.com/mghazalyh/playtorrio-ps4/actions/runs/41282973230) succeeded on November 1, 2026, after earlier #194. Main remains at 4b7836684c3b06ad6f6c7028e3ab487420b6e1f6; the published v1.5.0 release is unchanged.
+
+**Problem and implementation:** The renderer still converts all 1920x1080 NV12 frames to packed RGB32 on the UI thread. In src/nv12_scaler.hpp, native-resolution frames now use a portable guarded SSE2 path handling 8 pixels at once with the original integer BT.601/BT.709, limited/full-range equations, 0x80 alpha, exact rounding/saturation, even-width scalar tail, crop and pitch. Non-x86/SSE2 platforms and all resampled frames retain the prior scalar/bilinear implementation. ps4/video_player.cpp logs only the numeric native_sse2 flag alongside existing conversion timings. No source recompression, telemetrics policy change, audio change, or GPU/FFmpeg/libmpv integration.
+
+**Tests and confidence:** Local isolated x86-64 SSE2 reference exercise with randomized widths and both color ranges passed under C++17 ASan/UBSan; tests/nv12_scaler_test.cpp adds independent exhaustive scalar-reference checks for varying pixels, padded stride, cropped regions and 720-line HD. The repository portable/native OpenOrbis CI for this NEW change is **PENDING until GitHub Actions reports**. Neither shadPS4 nor physical PS4 picture quality, actual conversion time, sustained FPS, or audio has been verified. Benchmarks measured on a host cannot predict PS4 speed.
+
+**Next:** Inspect the resulting PR run and compare VIDEO_QUALITY native_sse2/avg_convert_us/max_convert_us with previous build in a live TMDB → Torrentio → TorBox playback. Follow up on audio formats separately; consider GPU texture conversion only when an actual console-compatible OpenOrbis pipeline can be proven. Preserve source selection, read-ahead, privacy-safe telemetry and opt-in semantics.
+
 ## 2026-11-01: Automatic in-depth PS4 runtime diagnostics to private TorriODB
 
 **Owner requirement:** On a normal TMDB → Torrentio → TorBox PS4 test, diagnostics should be uploaded with minimal manual log handling, including nonfatal pixelation/performance investigations. Original opt-in privacy boundary remains mandatory.

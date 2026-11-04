@@ -99,5 +99,66 @@ int main() {
     assert(pixels[1]==pixels[0]);
     assert(pixels[2]==expected(235,128,128,true,full));
   }
-  puts("Native 1080p pixel fidelity and bilinear regression passed");
+
+  // Verify the vectorized groups and 2-/6-pixel scalar tails against the
+  // independent reference with non-neutral, varying chroma and luma.
+  // Also verify nonzero crop offsets and padded pitch on those same rows.
+  constexpr int regressionW=34,regressionH=8,regressionPitch=40;
+  std::vector<uint8_t> varying((size_t)regressionPitch*regressionH*3/2,0);
+  for(int row=0;row<regressionH;row++){
+    for(int x=0;x<regressionW;x++)
+      varying[(size_t)row*regressionPitch+x]=
+          (uint8_t)((row*37+x*19+3)%256);
+  }
+  for(int row=0;row<regressionH/2;row++){
+    for(int x=0;x<regressionW;x+=2){
+      const size_t at=(size_t)regressionPitch*regressionH+
+                      (size_t)row*regressionPitch+x;
+      varying[at]=(uint8_t)((row*41+x*11+7)%256);
+      varying[at+1]=(uint8_t)((row*53+x*17+109)%256);
+    }
+  }
+  for(bool full : {false,true}){
+    for(int cropL : {0,2}){
+      const int cropT=cropL, w=regressionW-2*cropL;
+      const int h=regressionH-2*cropT;
+      assert(ptvvideo::scale_nv12(varying.data(),regressionW,
+          regressionH,regressionPitch,cropL,cropT,w,h,w,h,full,pixels));
+      for(int row=0;row<h;row++)for(int x=0;x<w;x++){
+        const int sy=row+cropT,sx=x+cropL;
+        const size_t luma=(size_t)sy*regressionPitch+sx;
+        const size_t chroma=(size_t)regressionPitch*regressionH+
+             (size_t)(sy/2)*regressionPitch+(sx&~1);
+        assert(pixels[(size_t)row*w+x]==expected(varying[luma],
+            varying[chroma],varying[chroma+1],false,full));
+      }
+    }
+  }
+  // A 720-line source takes the HD matrix with the same vectorized code.
+  constexpr int hdTestW=32,hdTestH=720;
+  std::vector<uint8_t> hdVarying((size_t)hdTestW*hdTestH*3/2,0);
+  for(int row=0;row<hdTestH;row++){
+    for(int x=0;x<hdTestW;x++)
+      hdVarying[(size_t)row*hdTestW+x]=(uint8_t)((row*13+x*23)%256);
+  }
+  for(int row=0;row<hdTestH/2;row++){
+    for(int x=0;x<hdTestW;x+=2){
+      const size_t at=(size_t)hdTestW*hdTestH+
+          (size_t)row*hdTestW+x;
+      hdVarying[at]=(uint8_t)((row*29+x*17)%256);
+      hdVarying[at+1]=(uint8_t)((row*47+x*31+127)%256);
+    }
+  }
+  for(bool full : {false,true}){
+    assert(ptvvideo::scale_nv12(hdVarying.data(),hdTestW,hdTestH,
+        hdTestW,0,0,hdTestW,hdTestH,hdTestW,hdTestH,full,pixels));
+    for(int row=0;row<hdTestH;row++)for(int x=0;x<hdTestW;x++){
+      const size_t luma=(size_t)row*hdTestW+x;
+      const size_t chroma=(size_t)hdTestW*hdTestH+
+          (size_t)(row/2)*hdTestW+(x&~1);
+      assert(pixels[luma]==expected(hdVarying[luma],
+          hdVarying[chroma],hdVarying[chroma+1],true,full));
+    }
+  }
+  puts("Native 1080p scalar/SSE2 pixel fidelity and bilinear regression passed");
 }
