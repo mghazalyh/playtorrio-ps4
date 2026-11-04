@@ -21,6 +21,8 @@ bool RangeStream::start(const std::string& url,uint64_t total,
   {
     std::lock_guard<std::mutex> lock(mutex_);
     url_=url;prefix_=head;total_=total;requests_=0;
+    downloadedBytes_=0;retryAttempts_=0;
+    readTimeouts_=0;rejectedRanges_=0;
     wanted_=0;suppressed_=ptvrange::kNone;
     stopping_=false;failed_=false;active_=true;
   }
@@ -80,6 +82,7 @@ int RangeStream::read(uint8_t* out,uint64_t pos,uint32_t length) {
     });
     if(!received||stopping_||failed_) {
       if(!received) {
+        ++readTimeouts_;
         failed_=true;
         lock.unlock();
         ps4diag::note("VIDEO_IO","FAIL read-ahead block wait timeout");
@@ -117,6 +120,7 @@ void RangeStream::workerLoop() {
     ps4net::Response response;
     bool ok=false;
     for(int retry=0;retry<2;retry++){
+      if(retry>0)++retryAttempts_;
       try{
         response=ps4net::request(url,"GET",
           {{"Range","bytes="+std::to_string(begin)+"-"+std::to_string(end)}},
@@ -135,6 +139,7 @@ void RangeStream::workerLoop() {
     lock.lock();
     if(stopping_)break;
     if(!ok){
+      ++rejectedRanges_;
       const bool demanded=block==wanted_;
       if(demanded)failed_=true;
       else suppressed_=block;
@@ -150,6 +155,7 @@ void RangeStream::workerLoop() {
       continue;
     }
     ++requests_;
+    downloadedBytes_+=(uint64_t)response.body.size();
     if(ptvrange::keep(block,wanted_)){
       blocks_[block]=std::vector<uint8_t>(response.body.begin(),response.body.end());
       const auto count=requests_.load();

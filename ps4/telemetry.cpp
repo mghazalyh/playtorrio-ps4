@@ -36,6 +36,9 @@ public:
       std::lock_guard<std::mutex> guard(mutex_);
       enabled_=enabled;
       token_=enabled?std::move(token):std::string();
+      if(enabled_&&!sessionNonce_)sessionNonce_=static_cast<uint64_t>(
+        std::chrono::steady_clock::now().time_since_epoch().count());
+      if(!enabled_)sessionNonce_=0;
       if(!enabled_){events_.clear();samples_.clear();metrics_={};pending_=false;
         last_sample_at_={};last_sample_frames_=0;}
       if(enabled_&&!worker_.joinable()) {
@@ -87,13 +90,16 @@ public:
       samples_.push_back(sample);
       last_sample_at_=now;
       last_sample_frames_=metrics.frames;
+      // Five-second samples continue through buffering or quiet playback.
+      // The uploader enforces 30-second HTTP pacing regardless of UI FPS.
+      pending_=true;cv_.notify_one();
     }
   }
 private:
   bool send(const std::vector<ptvtelemetry::Event>& events,
             const ptvtelemetry::PlaybackMetrics& metrics,
             const std::vector<ptvtelemetry::PerformanceSample>& samples,
-            const std::string& token,uint64_t serial) {
+            const std::string& token,uint64_t serial,uint64_t session) {
     if(events.empty()||!ptvtelemetry::safe_token(token))return false;
     const std::time_t now=std::time(nullptr);
     std::tm utc={};
@@ -118,7 +124,7 @@ private:
     picojson::object body;
     body["message"]=picojson::value("diagnostics(ps4): allowlisted player report");
     body["branch"]=picojson::value("main");
-    body["content"]=picojson::value(ptv::base64_encode(ptvtelemetry::report(events,metrics,samples)));
+    body["content"]=picojson::value(ptv::base64_encode(ptvtelemetry::report(events,metrics,samples,session)));
     try {
       const auto response=ps4net::request(url,"PUT",{
         {"Authorization","Bearer "+token},
@@ -158,10 +164,11 @@ private:
       const std::string token=token_;
       const auto metrics=metrics_;
       const auto samples=samples_;
+      const auto session=sessionNonce_;
       pending_=false;
       last_attempt_=std::chrono::steady_clock::now();
       lock.unlock();
-      const bool sent=send(batch,metrics,samples,token,through);
+      const bool sent=send(batch,metrics,samples,token,through,session);
       lock.lock();
       if(sent) {
         events_.erase(std::remove_if(events_.begin(),events_.end(),
@@ -184,7 +191,7 @@ private:
   std::chrono::steady_clock::time_point last_sample_at_{};
   uint64_t last_sample_frames_=0;
   std::string token_;
-  uint64_t serial_=0;
+  uint64_t serial_=0,sessionNonce_=0;
   bool stopping_=false,enabled_=false,pending_=false;
   std::chrono::steady_clock::time_point last_attempt_{};
 };

@@ -59,3 +59,11 @@ Previous PlayTorrio renderer (`ps4/video_player.cpp`):
 6. Keep `githubSyncEnabled=false` until explicit user request.
 
 Source reading is architectural analysis and cannot substitute for runtime testing or firmware-specific compatibility.
+
+## November 4: Actual playback worker and more informative console diagnostics
+
+Stremio-PS4's AvPlayer implementation provided the relevant **architecture**: a dedicated video decoder/pixel-conversion thread and output buffers independent from the main UI, plus a paced AudioOut queue. Our new `ps4/video_player.cpp` implements this pattern with an OpenOrbis-compatible `std::thread`, native 1080p SSE2 NV12 conversion and two protected RGB32 buffers. The PS4 UI only blits the last finished frame; render no longer pulls AvPlayer frames or converts pixels. `videoPresentedFrames` and `videoSkippedFrames` expose when the decoder is faster than UI rendering.
+
+The separate `src/audio_pcm.hpp` adapter consumes *whole* native PCM16 chunks, supports mono duplicated to stereo and 8–192 kHz sources linearly resampled to 48 kHz, and uses blocking 1,024-frame `sceAudioOutOutput` calls for real playback pacing. It uses only the first two decoded channels for multichannel audio because we do not have a verified PS4 surround-channel map. This is NOT a full FFmpeg/MPV audio renderer or codec support guarantee.
+
+The existing native VideoOut surface still receives CPU-produced RGB32. It is **not** Piglet GPU texture playback and the full Stremio-PS4 FFmpeg fallback/GMCA libmpv engine is **not** integrated. All graphics and audio changes require validation on shadPS4 and actual hardware. Full HDL original-quality TorBox content may still be limited by AvPlayer codecs and CPU memory throughput. These are measurable via new private TorriODB telemetry rather than assumed fixed.

@@ -24,7 +24,8 @@ enum class Code {
   AudioModuleFailed, AudioInitFailed, AudioPortFailed, AudioUnsupportedFormat,
   AudioOutputFailed, FirstAudioBuffer,
   PlaybackStopped, PlaybackEnded, PlaybackPaused, PlaybackResumed,
-  PlaybackStall
+  PlaybackStall, VideoWorkerStarted, VideoWorkerFailed,
+  AudioPortReady, AudioConverted
 };
 inline const char* name(Code code) {
   switch(code) {
@@ -60,6 +61,10 @@ inline const char* name(Code code) {
     case Code::PlaybackPaused: return "playback_paused";
     case Code::PlaybackResumed: return "playback_resumed";
     case Code::PlaybackStall: return "playback_stall";
+    case Code::VideoWorkerStarted: return "video_worker_started";
+    case Code::VideoWorkerFailed: return "video_worker_failed";
+    case Code::AudioPortReady: return "audio_port_ready";
+    case Code::AudioConverted: return "audio_pcm_converted";
   }
   return "unknown";
 }
@@ -79,13 +84,17 @@ inline const char* stage(Code code) {
     case Code::DecoderTimeout:
     case Code::InvalidFrame:
     case Code::InvalidCrop:
-    case Code::ConversionFailed: return "decoder";
+    case Code::ConversionFailed:
+    case Code::VideoWorkerStarted:
+    case Code::VideoWorkerFailed: return "decoder";
     case Code::AudioModuleFailed:
     case Code::AudioInitFailed:
     case Code::AudioPortFailed:
     case Code::AudioUnsupportedFormat:
     case Code::AudioOutputFailed:
-    case Code::FirstAudioBuffer: return "audio";
+    case Code::FirstAudioBuffer:
+    case Code::AudioPortReady:
+    case Code::AudioConverted: return "audio";
     default: return "playback";
   }
 }
@@ -99,6 +108,9 @@ inline bool failure(Code code) {
     case Code::FirstFrame:
     case Code::PlaybackProgress:
     case Code::FirstAudioBuffer:
+    case Code::VideoWorkerStarted:
+    case Code::AudioPortReady:
+    case Code::AudioConverted:
     case Code::PlaybackStopped:
     case Code::PlaybackEnded:
     case Code::PlaybackPaused:
@@ -127,6 +139,17 @@ struct PlaybackMetrics {
   uint64_t range_requests=0,decoder_read_calls=0,audio_buffers=0;
   uint64_t audio_channels=0,audio_sample_rate_hz=0;
   bool audio_format_unsupported=false;
+  // Runtime observability: separate decoded, actually displayed and recycled
+  // UI frames. A successful decode is not proof of video output or sound.
+  bool video_worker_enabled=false;
+  uint64_t video_empty_polls=0,video_invalid_frames=0;
+  uint64_t video_conversion_failures=0,video_presented_frames=0;
+  uint64_t video_cached_redraws=0,video_skipped_frames=0;
+  uint64_t audio_empty_polls=0,audio_converted_chunks=0;
+  uint64_t audio_output_failures=0,audio_invalid_chunks=0;
+  uint64_t presented_fps_x100=0;
+  uint64_t range_downloaded_bytes=0,range_retry_attempts=0;
+  uint64_t range_read_timeouts=0,range_rejected_blocks=0;
 };
 // Five-second, bounded, privacy-safe performance history.
 struct PerformanceSample {
@@ -140,7 +163,8 @@ inline double limited(uint64_t number){
 // No free text can reach the serialized report; even failure codes are typed.
 inline std::string report(const std::vector<Event>& events,
                           const PlaybackMetrics& m=PlaybackMetrics{},
-                          const std::vector<PerformanceSample>& performance={}) {
+                          const std::vector<PerformanceSample>& performance={},
+                          uint64_t session_nonce=0) {
   picojson::object root;
   const auto timestamp=std::time(nullptr);
   std::tm utc={};
@@ -155,10 +179,18 @@ inline std::string report(const std::vector<Event>& events,
   root["appVersion"]=picojson::value("1.5.0-experimental");
   root["buildCommit"]=picojson::value(PTV_PS4_BUILD_COMMIT);
   root["buildRun"]=picojson::value(PTV_PS4_BUILD_RUN);
+  // This nonce is generated once per app session from a process-local
+  // monotonic tick. It is not a hardware, network or account identifier.
+  char session[24]={};
+  std::snprintf(session,sizeof(session),"%016llx",
+    static_cast<unsigned long long>(session_nonce));
+  root["ephemeralSession"]=picojson::value(session);
   root["schema"]=picojson::value(1.0);
   root["kind"]=picojson::value("ps4_playback_capability_diagnostic");
   root["platform"]=picojson::value("ps4");
   root["reason"]=picojson::value("automatic_playback_diagnostic");
+  root["videoBackend"]=picojson::value("avplayer_cpu_sse2_worker_videoout");
+  root["audioBackend"]=picojson::value("avplayer_pcm16_audioout_48k");
   picojson::object metrics;
   metrics["decoder_width"]=picojson::value(limited(m.decoder_width));
   metrics["decoder_height"]=picojson::value(limited(m.decoder_height));
@@ -182,6 +214,22 @@ inline std::string report(const std::vector<Event>& events,
   metrics["audio_channels"]=picojson::value(limited(m.audio_channels));
   metrics["audio_sample_rate_hz"]=picojson::value(limited(m.audio_sample_rate_hz));
   metrics["audio_format_unsupported"]=picojson::value(m.audio_format_unsupported);
+  metrics["video_worker_enabled"]=picojson::value(m.video_worker_enabled);
+  metrics["video_empty_polls"]=picojson::value(limited(m.video_empty_polls));
+  metrics["video_invalid_frames"]=picojson::value(limited(m.video_invalid_frames));
+  metrics["video_conversion_failures"]=picojson::value(limited(m.video_conversion_failures));
+  metrics["video_presented_frames"]=picojson::value(limited(m.video_presented_frames));
+  metrics["video_cached_redraws"]=picojson::value(limited(m.video_cached_redraws));
+  metrics["video_skipped_frames"]=picojson::value(limited(m.video_skipped_frames));
+  metrics["audio_empty_polls"]=picojson::value(limited(m.audio_empty_polls));
+  metrics["audio_converted_chunks"]=picojson::value(limited(m.audio_converted_chunks));
+  metrics["audio_output_failures"]=picojson::value(limited(m.audio_output_failures));
+  metrics["audio_invalid_chunks"]=picojson::value(limited(m.audio_invalid_chunks));
+  metrics["presented_fps_x100"]=picojson::value(limited(m.presented_fps_x100));
+  metrics["range_downloaded_bytes"]=picojson::value(limited(m.range_downloaded_bytes));
+  metrics["range_retry_attempts"]=picojson::value(limited(m.range_retry_attempts));
+  metrics["range_read_timeouts"]=picojson::value(limited(m.range_read_timeouts));
+  metrics["range_rejected_blocks"]=picojson::value(limited(m.range_rejected_blocks));
   root["playback"]=picojson::value(metrics);
   root["sampleIntervalSeconds"]=picojson::value(5.0);
   picojson::array history;
@@ -210,6 +258,22 @@ inline std::string report(const std::vector<Event>& events,
     sample["audio_channels"]=picojson::value(limited(v.audio_channels));
     sample["audio_sample_rate_hz"]=picojson::value(limited(v.audio_sample_rate_hz));
     sample["audio_format_unsupported"]=picojson::value(v.audio_format_unsupported);
+    sample["video_worker_enabled"]=picojson::value(v.video_worker_enabled);
+    sample["video_empty_polls"]=picojson::value(limited(v.video_empty_polls));
+    sample["video_invalid_frames"]=picojson::value(limited(v.video_invalid_frames));
+    sample["video_conversion_failures"]=picojson::value(limited(v.video_conversion_failures));
+    sample["video_presented_frames"]=picojson::value(limited(v.video_presented_frames));
+    sample["video_cached_redraws"]=picojson::value(limited(v.video_cached_redraws));
+    sample["video_skipped_frames"]=picojson::value(limited(v.video_skipped_frames));
+    sample["audio_empty_polls"]=picojson::value(limited(v.audio_empty_polls));
+    sample["audio_converted_chunks"]=picojson::value(limited(v.audio_converted_chunks));
+    sample["audio_output_failures"]=picojson::value(limited(v.audio_output_failures));
+    sample["audio_invalid_chunks"]=picojson::value(limited(v.audio_invalid_chunks));
+    sample["presented_fps_x100"]=picojson::value(limited(v.presented_fps_x100));
+    sample["range_downloaded_bytes"]=picojson::value(limited(v.range_downloaded_bytes));
+    sample["range_retry_attempts"]=picojson::value(limited(v.range_retry_attempts));
+    sample["range_read_timeouts"]=picojson::value(limited(v.range_read_timeouts));
+    sample["range_rejected_blocks"]=picojson::value(limited(v.range_rejected_blocks));
     history.emplace_back(sample);
   }
   root["performanceSamples"]=picojson::value(history);

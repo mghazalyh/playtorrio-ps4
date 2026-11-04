@@ -31,3 +31,19 @@ Uploads happen automatically after startup, key player events, first frame, prog
 Telemetry remains opt-in. Reports contain no media titles, IMDb/TMDB IDs, signed stream URLs, tokens, torrent hashes, subtitle text, raw media, console serials or stable device fingerprints. A hard crash/power-off before successful upload can lose bounded in-memory events. CI success cannot prove an HTTP 201 from shadPS4/PS4.
 
 The PR-only workflow sends the exact GitHub Actions run/artifact URL to Telegram whether test/package jobs pass or fail. It requires the **PS4 repository** Actions secret `TELEGRAM_BOT_TOKEN`. Optional `TELEGRAM_CHANNEL_ID` overrides the historical PlayTorrio destination. Missing credentials fail the notification job visibly instead of silently claiming delivery. PR builds cannot overwrite the public v1.5.0 release.
+
+## November 4: Extended PS4 playback flight-recorder fields
+
+The active PS4 backend is `avplayer_cpu_sse2_worker_videoout`, **not** FFmpeg/libmpv or a Piglet texture renderer. Each opt-in private TorriODB report now identifies that backend, compile-time build commit/build run, a boot-local ephemeralSession nonce and the UTC time.
+
+New bounded numeric fields, both in the current `playback` snapshot and up to 24 rolling five-second `performanceSamples`, include:
+- `presented_fps_x100`, `video_presented_frames`, `video_skipped_frames`, `video_cached_redraws`: presentation throughput, dropped intermediate frames, expected repeated display and decoder-to-presenter differences.
+- `video_worker_enabled`, `video_empty_polls`, `video_invalid_frames`, `video_conversion_failures`: decoder/worker state and conversion failure counts.
+- `audio_empty_polls`, `audio_converted_chunks`, `audio_output_failures`, `audio_invalid_chunks`, `audio_buffers`, `audio_channels`, `audio_sample_rate_hz`: format compatibility, native audio drain and output failures.
+- `range_downloaded_bytes`, `range_retry_attempts`, `range_read_timeouts`, `range_rejected_blocks`, `range_requests`, `decoder_read_calls`: CDN/HTTP byte-range health without URLs or content.
+
+The recorder now receives a fresh snapshot every five seconds while the video screen renders; even quiet/buffering sessions schedule private reports, with the existing **30-second minimum between upload attempts**. The max history remains 24 events and 24 samples in RAM and retries remain bounded. To actually send telemetry from PS4, `telemetryEnabled: true` and a locally configured `telemetryToken` with Contents write access to private TorriODB are required. Disabling telemetry discards stored data. Crash/power loss before upload can still lose data.
+
+The source contains *no* Telegram bot token. The PS4 repository `TELEGRAM_BOT_TOKEN` GitHub Actions secret must be configured for the PR-only sendMessage notification; missing secrets cause a notification failure but do not invalidate a successful native package job.
+
+Compilation alone cannot validate audio, real hardware video output, HTTP 201 or Telegram delivery.

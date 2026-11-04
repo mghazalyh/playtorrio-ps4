@@ -9,7 +9,7 @@ for needed in "$sdk/link.x" "$sdk/lib/crt1.o" "$sdk/samples/_common/graphics.cpp
   "$toolbin/create-fself" "$toolbin/create-gp4" "$toolbin/PkgTool.Core"; do
   test -e "$needed" || { echo "Missing OpenOrbis SDK component: $needed" >&2; exit 2; }
 done
-build_commit="${GITHUB_SHA:-$(git rev-parse HEAD 2>/dev/null || true)}"
+build_commit="${PTV_SOURCE_COMMIT:-${GITHUB_SHA:-$(git rev-parse HEAD 2>/dev/null || true)}}"
 if [[ ! "$build_commit" =~ ^[0-9a-fA-F]{7,40}$ ]]; then build_commit=unknown; fi
 build_run="${GITHUB_RUN_NUMBER:-0}"
 if [[ ! "$build_run" =~ ^[0-9]{1,9}$ ]]; then build_run=0; fi
