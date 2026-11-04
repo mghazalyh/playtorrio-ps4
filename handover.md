@@ -1,3 +1,17 @@
+## 2026-11-04: PS4 PCM16 signed rounding and streaming resampler phase fix (PR #2, NEW CI PENDING)
+
+**Snapshot / scope:** On branch `ps4-fullhd-debrid-quality` at baseline HEAD `0e28132d32b535bd58a1ee8a82beca1387fc4ba9`, main remains `4b7836684c3b06ad6f6c7028e3ab487420b6e1f6`. The exact commit containing this entry is the PR branch HEAD after the one atomic ref update. The owner explicitly forbids checking or polling build statuses; do NOT override that instruction from older handovers.
+
+**Confirmed source defects:** `src/audio_pcm.hpp` previously used `(weighted + 24000) / 48000` even for negative samples. C++ signed truncation therefore changed negative 48 kHz stereo samples that should have passed through identically. For 44.1 kHz and other rates the converter accumulated only a count remainder while restarting interpolation at position zero for each AvPlayer chunk, making conversion depend on arbitrary decoder chunk boundaries and repeating the end sample.
+
+**Change:** Maintain a continuous integer/rational output phase and the previous source frame across chunks; defer fractional interpolation until the following source frame exists. Use symmetric signed rounding and exact zero-fraction passthrough. Reject incomplete PCM frames; preserve the existing 8,192-output-frame default queue bound, 8–192 kHz range, mono duplication, first-two-channel multichannel fallback, and reset timing on format changes. Failed validation/queue growth leaves resampler state and pending queue untouched. No native renderer/AvPlayer ABI, HTTP ranges, telemetry schema, source selection, watchlist or release changes.
+
+**Host verification performed before push:** Updated `tests/audio_pcm_test.cpp` passes local g++ C++17 `-O2 -Wall -Wextra -Werror` and ASan/UBSan. Checks exact 48 kHz signed and extreme PCM samples, mono/stereo/front-pair mappings, odd chunk sizes, one-shot versus irregular-chunk byte-exact output at 32, 44.1, 48 and 96 kHz, malformed sizes and queue rejection without advancing phase. OpenOrbis native build, GoldHEN 10.01/shadPS4 audio/video, real AudioOut buffer delivery and TorriODB HTTP 201 remain UNVERIFIED for this change. One PR branch update automatically requests exactly one normal native workflow; DO NOT poll it. `main` and published v1.5.0 remain protected.
+
+**Next:** The owner checks the PR build personally. With real opt-in PS4 telemetry, compare native decoded/presented FPS, frame gaps, conversion time, stream retries and AudioOut buffer/error counters before taking more playback changes. Piglet GPU textures, FFmpeg/libmpv and true multichannel downmix remain unimplemented.
+
+---
+
 ## 2026-11-04: Dedicated PS4 AvPlayer worker, 48k PCM audio adaptation and expanded flight-recorder telemetry (NEW BUILD PENDING)
 
 **Owner request:** The old video player looked extremely blocky. Substantially upgrade the *actual playback path*, taking proven architecture from Navinas3460/Stremio-PS4 and GMCA research, send opt-in telemetry automatically to private TorriODB, trigger exactly one experimental PS4 build on PR #2, STOP without polling, and preserve a copyable emergency crash-recovery prompt.
@@ -664,6 +678,15 @@ A genuine final version requires direct native PS4 install/use with real hardwar
 10. Do not silently switch on GitHub sync.
 
 ## 9. CHANGE LOG — append new work here (newest first)
+
+### 2026-11-04 — PCM16 streaming phase and signed conversion correction (PR #2; build NOT CHECKED)
+- **Baseline:** 0e28132d32b535bd58a1ee8a82beca1387fc4ba9, protected main 4b7836684c3b06ad6f6c7028e3ab487420b6e1f6.
+- **Confirmed by source:** Negative PCM16 passthrough rounding was incorrect; non-48k interpolation reset at every audio chunk despite a carried sample-count remainder. Arbitrary chunk boundaries changed decoded audio samples.
+- **Implementation:** src/audio_pcm.hpp keeps rational 48k output phase and previous input frame between calls, symmetric negative rounding, strict complete-frame validation and failure-atomic bounded queue updates. tests/audio_pcm_test.cpp covers PCM extremes, format/channel mapping, irregular chunks against a whole-stream reference, validation rejection.
+- **Verification:** Local g++ C++17 optimized and ASan/UBSan standalone audio tests PASS. Native OpenOrbis package, PS4/shadPS4 playback, audible sync and telemetry upload NOT VERIFIED. PR #2 branch update triggers the workflow; per owner's newer instruction NEVER inspect build statuses.
+- **Documentation:** handover.md and docs/rendering-research.md. No changes to main, release, private TorriODB, credentials, telemetry opt-in or watchlist setting.
+
+
 
 ### 2026-10-27 — v1.5 source-backed Windows/iOS feature catch-up (CI PASS; shadPS4 PENDING)
 - **User correction:** Previous feature comparison examined `ptv3` default `main` rather than real active `parity-floating-player-both`. Verified released v1.1.7 Build 127, also observed unreleased v1.1.8 actor-filmography branch commit; reconstructed source-grounded feature matrix in docs/ptv3-active-feature-audit.md.
