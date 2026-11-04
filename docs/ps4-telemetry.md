@@ -47,3 +47,12 @@ The recorder now receives a fresh snapshot every five seconds while the video sc
 The source contains *no* Telegram bot token. The PS4 repository `TELEGRAM_BOT_TOKEN` GitHub Actions secret must be configured for the PR-only sendMessage notification; missing secrets cause a notification failure but do not invalidate a successful native package job.
 
 Compilation alone cannot validate audio, real hardware video output, HTTP 201 or Telegram delivery.
+
+
+## November 5: Source-audited upload receipts and subsystem intervals (native build PENDING)
+
+Source review found a real reporting defect: after a successful upload removed all events, another five-second performance sample could set `pending_` with an empty event queue, while the upload function refused to send without events. Quiet playback and prolonged buffering could consequently stop producing reports. The sender now accepts a bounded samples-only report and verifies GitHub's HTTP 201 **and** matching Contents API `content.path`, `content.sha` and `commit.sha`. The local telemetry log reports sanitized HTTP/native codes, receipt validity, event count and sample count, not URLs or tokens.
+
+The next report also includes `uploadHealth` with aggregate attempts, successes, failures, last HTTP status and last native error from previous attempts. Each rolling performance sample adds actual monotonic `interval_ms`, decoded/presented per-interval FPS ×100, and deltas for presented/skipped frames, AudioOut buffers/failures, bytes, HTTP retries and conversion failures. First samples have interval 0 and interval FPS 0 (unknown, not a false zero-FPS alarm). These are **instrumented counters**, not proof of photons reaching the screen or audible speakers.
+
+Portable regression coverage checks samples-only eligibility, interval rates including reset/overflow, GitHub response recognition and redacted upload history. The private `ps4/player` directory had not appeared on TorriODB as of this audit. A successful actual PS4-to-GitHub HTTP 201 and returned receipt remains **UNVERIFIED**. It requires local `telemetryEnabled=true`, an authorized `telemetryToken`, internet access and a working native HTTP stack. Hard crashes before upload can still lose in-memory reports. No changes were made to private TorriODB or to watchlist sync.

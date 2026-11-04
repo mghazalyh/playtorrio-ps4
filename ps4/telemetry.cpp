@@ -40,7 +40,7 @@ public:
         std::chrono::steady_clock::now().time_since_epoch().count());
       if(!enabled_)sessionNonce_=0;
       if(!enabled_){events_.clear();samples_.clear();metrics_={};pending_=false;
-        last_sample_at_={};last_sample_frames_=0;}
+        last_sample_at_={};last_sample_metrics_={};uploadHealth_={};}
       if(enabled_&&!worker_.joinable()) {
         try {worker_=std::thread([this]{loop();});}
         catch(const std::exception&){enabled_=false;token_.clear();}
@@ -56,7 +56,7 @@ public:
     if(!enabled_||stopping_)return;
     if(code==ptvtelemetry::Code::SourceRequested ||
        code==ptvtelemetry::Code::PlaybackStarted){
-      samples_.clear();last_sample_at_={};last_sample_frames_=0;metrics_={};
+      samples_.clear();last_sample_at_={};last_sample_metrics_={};metrics_={};
     }
     if(events_.size()>=24)events_.erase(events_.begin());
     events_.push_back({++serial_,{code,std::time(nullptr),http,native,count}});
@@ -84,12 +84,33 @@ public:
       ptvtelemetry::PerformanceSample sample;
       sample.observed_at=std::time(nullptr);
       sample.metrics=metrics;
-      sample.frame_delta=metrics.frames>=last_sample_frames_?
-        metrics.frames-last_sample_frames_:metrics.frames;
+      sample.frame_delta=ptvtelemetry::metric_delta(metrics.frames,last_sample_metrics_.frames);
+      sample.presented_delta=ptvtelemetry::metric_delta(
+        metrics.video_presented_frames,last_sample_metrics_.video_presented_frames);
+      sample.skipped_delta=ptvtelemetry::metric_delta(
+        metrics.video_skipped_frames,last_sample_metrics_.video_skipped_frames);
+      sample.audio_buffers_delta=ptvtelemetry::metric_delta(
+        metrics.audio_buffers,last_sample_metrics_.audio_buffers);
+      sample.range_bytes_delta=ptvtelemetry::metric_delta(
+        metrics.range_downloaded_bytes,last_sample_metrics_.range_downloaded_bytes);
+      sample.range_retries_delta=ptvtelemetry::metric_delta(
+        metrics.range_retry_attempts,last_sample_metrics_.range_retry_attempts);
+      sample.audio_failures_delta=ptvtelemetry::metric_delta(
+        metrics.audio_output_failures,last_sample_metrics_.audio_output_failures);
+      sample.conversion_failures_delta=ptvtelemetry::metric_delta(
+        metrics.video_conversion_failures,last_sample_metrics_.video_conversion_failures);
+      if(last_sample_at_!=std::chrono::steady_clock::time_point{}){
+        sample.interval_ms=static_cast<uint64_t>(
+          std::chrono::duration_cast<std::chrono::milliseconds>(now-last_sample_at_).count());
+        sample.decoded_fps_interval_x100=ptvtelemetry::interval_fps_x100(
+          sample.frame_delta,sample.interval_ms);
+        sample.presented_fps_interval_x100=ptvtelemetry::interval_fps_x100(
+          sample.presented_delta,sample.interval_ms);
+      }
       if(samples_.size()>=24)samples_.erase(samples_.begin());
       samples_.push_back(sample);
       last_sample_at_=now;
-      last_sample_frames_=metrics.frames;
+      last_sample_metrics_=metrics;
       // Five-second samples continue through buffering or quiet playback.
       // The uploader enforces 30-second HTTP pacing regardless of UI FPS.
       pending_=true;cv_.notify_one();
@@ -99,8 +120,11 @@ private:
   bool send(const std::vector<ptvtelemetry::Event>& events,
             const ptvtelemetry::PlaybackMetrics& metrics,
             const std::vector<ptvtelemetry::PerformanceSample>& samples,
-            const std::string& token,uint64_t serial,uint64_t session) {
-    if(events.empty()||!ptvtelemetry::safe_token(token))return false;
+            const std::string& token,uint64_t serial,uint64_t session,
+            const ptvtelemetry::UploadHealth& upload,
+            int& http_status,int& native_error) {
+    if(!ptvtelemetry::upload_payload_available(events.size(),samples.size())||
+       !ptvtelemetry::safe_token(token))return false;
     const std::time_t now=std::time(nullptr);
     std::tm utc={};
     char date[32]={};
@@ -124,7 +148,7 @@ private:
     picojson::object body;
     body["message"]=picojson::value("diagnostics(ps4): allowlisted player report");
     body["branch"]=picojson::value("main");
-    body["content"]=picojson::value(ptv::base64_encode(ptvtelemetry::report(events,metrics,samples,session)));
+    body["content"]=picojson::value(ptv::base64_encode(ptvtelemetry::report(events,metrics,samples,session,upload)));
     try {
       const auto response=ps4net::request(url,"PUT",{
         {"Authorization","Bearer "+token},
@@ -133,11 +157,17 @@ private:
         {"X-GitHub-Api-Version","2022-11-28"},
         {"User-Agent","PlayTorrio-PS4-private-diagnostics"}
       },picojson::value(body).serialize(),32768);
-      const bool success=response.status==201&&response.platform_error==0;
+      http_status=response.status;
+      native_error=response.platform_error;
+      const bool receipt= !response.truncated&&
+        ptvtelemetry::github_create_receipt(response.body,path);
+      const bool success=response.status==201&&response.platform_error==0&&receipt;
       note("TELEMETRY",std::string(success?"PASS":"FAIL")+
         " private GitHub upload http="+std::to_string(response.status)+
         " native="+std::to_string(response.platform_error)+
-        " events="+std::to_string(events.size()));
+        " receipt="+std::to_string(receipt?1:0)+
+        " events="+std::to_string(events.size())+
+        " samples="+std::to_string(samples.size()));
       return success;
     }catch(const std::exception&){
       note("TELEMETRY","FAIL private GitHub upload exception");
@@ -165,16 +195,24 @@ private:
       const auto metrics=metrics_;
       const auto samples=samples_;
       const auto session=sessionNonce_;
+      ++uploadHealth_.attempts;
+      const auto health=uploadHealth_;
       pending_=false;
       last_attempt_=std::chrono::steady_clock::now();
       lock.unlock();
-      const bool sent=send(batch,metrics,samples,token,through,session);
+      int status=0,native=0;
+      const bool sent=send(batch,metrics,samples,token,through,session,
+                           health,status,native);
       lock.lock();
+      uploadHealth_.last_http_status=status;
+      uploadHealth_.last_native_error=native;
       if(sent) {
+        ++uploadHealth_.successes;
         events_.erase(std::remove_if(events_.begin(),events_.end(),
           [through](const Item& item){return item.serial<=through;}),
           events_.end());
       }else if(enabled_) {
+        ++uploadHealth_.failures;
         // A failed upload must not vanish if this session has no subsequent
         // failure. Retry at the normal 30-second ceiling while the app runs.
         // This remains bounded in memory; no unbounded queue or retry storm.
@@ -189,7 +227,8 @@ private:
   ptvtelemetry::PlaybackMetrics metrics_{};
   std::vector<ptvtelemetry::PerformanceSample> samples_;
   std::chrono::steady_clock::time_point last_sample_at_{};
-  uint64_t last_sample_frames_=0;
+  ptvtelemetry::PlaybackMetrics last_sample_metrics_{};
+  ptvtelemetry::UploadHealth uploadHealth_{};
   std::string token_;
   uint64_t serial_=0,sessionNonce_=0;
   bool stopping_=false,enabled_=false,pending_=false;

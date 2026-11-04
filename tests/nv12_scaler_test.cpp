@@ -4,6 +4,12 @@
 #include <vector>
 int main() {
   std::vector<uint32_t> pixels;
+  assert(ptvvideo::resolve_nv12_pitch(1920,0)==1920);
+  assert(ptvvideo::resolve_nv12_pitch(854,0)==896);
+  assert(ptvvideo::resolve_nv12_pitch(854,896)==896);
+  assert(ptvvideo::resolve_nv12_pitch(854,800)==0);
+  assert(ptvvideo::resolve_nv12_pitch(854,8193)==0);
+  assert(ptvvideo::resolve_nv12_pitch(0,0)==0);
   // A 4x4 black limited-range NV12 picture with neutral chroma.
   uint8_t black[24]={16,16,16,16,16,16,16,16,
                      16,16,16,16,16,16,16,16,

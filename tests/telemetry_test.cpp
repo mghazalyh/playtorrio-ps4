@@ -111,6 +111,7 @@ int main() {
       .at("performanceSamples").get<picojson::array>();
   assert(steps.size()==2);
   assert(steps[1].get<picojson::object>().at("frame_delta").get<double>()==120);
+  assert(steps[0].get<picojson::object>().at("interval_ms").get<double>()==0);
   assert(steps[0].get<picojson::object>().at("audio_channels").get<double>()==6);
   assert(steps[1].get<picojson::object>().at("audio_sample_rate_hz").get<double>()==48000);
   std::vector<ptvtelemetry::PerformanceSample> overflowing(31,history[0]);
@@ -153,6 +154,32 @@ int main() {
   assert(picojson::parse(clipped,ptvtelemetry::report(events,snapshot)).empty());
   assert(clipped.get<picojson::object>().at("playback").get<picojson::object>()
     .at("frames").get<double>()==1000000000.0);
+  assert(ptvtelemetry::upload_payload_available(0,1));
+  assert(ptvtelemetry::upload_payload_available(1,0));
+  assert(!ptvtelemetry::upload_payload_available(0,0));
+  assert(ptvtelemetry::metric_delta(101,75)==26);
+  assert(ptvtelemetry::metric_delta(9,99)==9);
+  assert(ptvtelemetry::interval_fps_x100(120,5000)==2400);
+  assert(ptvtelemetry::interval_fps_x100(50,0)==0);
+  assert(ptvtelemetry::interval_fps_x100(UINT64_MAX,1)==100000000000000ULL);
+  const std::string target="playtorrio/diagnostics/ps4/player/2026/11/05/test.json";
+  const std::string receipt=std::string(R"({"content":{"path":")")+target+
+    R"(","sha":"abc123"},"commit":{"sha":"123456"}})";
+  assert(ptvtelemetry::github_create_receipt(receipt,target));
+  assert(!ptvtelemetry::github_create_receipt(receipt,target+".other"));
+  assert(!ptvtelemetry::github_create_receipt("{}",target));
+  assert(!ptvtelemetry::github_create_receipt("not json",target));
+  ptvtelemetry::UploadHealth retryHistory;
+  retryHistory.attempts=3;retryHistory.successes=1;retryHistory.failures=2;
+  retryHistory.last_http_status=401;
+  picojson::value checkedHealth;
+  assert(picojson::parse(checkedHealth,
+     ptvtelemetry::report({},snapshot,history,0x1234ULL,retryHistory)).empty());
+  const auto& uploadHealth=checkedHealth.get<picojson::object>()
+     .at("uploadHealth").get<picojson::object>();
+  assert(uploadHealth.at("attempts").get<double>()==3);
+  assert(uploadHealth.at("failures").get<double>()==2);
+  assert(uploadHealth.at("last_http_status").get<double>()==401);
   std::vector<ptvtelemetry::Event> many(26,events[1]);
   picojson::value again;
   assert(picojson::parse(again,ptvtelemetry::report(many)).empty());

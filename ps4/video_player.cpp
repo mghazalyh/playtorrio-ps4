@@ -261,11 +261,13 @@ void Player::videoLoop(){
     }
     const auto& v=frame.details.video;
     const int w=(int)v.width,h=(int)v.height;
-    const int pitch=std::max(w,(int)v.pitch);
+    // Missing AvPlayer pitch must use the NV12 decoder's 64-byte row
+    // alignment, not a tightly packed width. Reject malformed supplied pitch.
+    const int pitch=ptvvideo::resolve_nv12_pitch(w,v.pitch);
     const int cropL=(int)v.cropLeft,cropR=(int)v.cropRight;
     const int cropT=(int)v.cropTop,cropB=(int)v.cropBottom;
     const int vw=w-cropL-cropR,vh=h-cropT-cropB;
-    if(w<2||h<2||w>4096||h>2160||pitch>8192||
+    if(w<2||h<2||w>4096||h>2160||pitch==0||
        cropL<0||cropR<0||cropT<0||cropB<0||vw<2||vh<2){
       ++videoInvalidFrames_;
       if(!loggedInvalidFrame_){loggedInvalidFrame_=true;
@@ -323,6 +325,7 @@ void Player::videoLoop(){
       ps4diag::note("VIDEO_THREAD","VIDEO_QUALITY worker=1 frames="+
         std::to_string(n)+" decoder="+std::to_string(w)+"x"+std::to_string(h)+
         " output="+std::to_string(outW)+"x"+std::to_string(outH)+
+        " pitch_fallback="+std::to_string(v.pitch==0?1:0)+
         " native_sse2="+std::to_string((outW==vw&&outH==vh&&
              ptvvideo::native_sse2_enabled())?1:0)+
         " full_range="+std::to_string(v.fullRange!=0)+
@@ -359,7 +362,7 @@ void Player::publishMetrics(){
   m.audio_channels=audioChannels_.load();
   m.audio_sample_rate_hz=audioSampleRateHz_.load();
   m.audio_format_unsupported=audioFormatUnsupported_.load();
-  m.video_worker_enabled=true;
+  m.video_worker_enabled=videoRunning_.load();
   m.video_empty_polls=videoEmptyPolls_.load();
   m.video_invalid_frames=videoInvalidFrames_.load();
   m.video_conversion_failures=videoConversionFailures_.load();

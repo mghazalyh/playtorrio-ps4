@@ -36,6 +36,13 @@ inline int bound8(int v) {
 // resolution pixels at a time using signed 32-bit intermediates. Keeping the
 // original fixed-point coefficients, rounding, clipping and 0x80 alpha makes
 // this bit-exact with the portable scalar path, including out-of-range YUV.
+inline int resolve_nv12_pitch(int width,uint32_t suppliedPitch) {
+  if(width<2||width>4096)return 0;
+  const uint32_t pitch=suppliedPitch?suppliedPitch:
+       ((static_cast<uint32_t>(width)+63U)&~63U);
+  if(pitch<static_cast<uint32_t>(width)||pitch>8192U)return 0;
+  return static_cast<int>(pitch);
+}
 inline bool native_sse2_enabled() {
 #if defined(__SSE2__)
   return true;

@@ -156,7 +156,24 @@ struct PerformanceSample {
   std::time_t observed_at=0;
   PlaybackMetrics metrics{};
   uint64_t frame_delta=0;
+  uint64_t interval_ms=0,presented_delta=0,skipped_delta=0;
+  uint64_t audio_buffers_delta=0,range_bytes_delta=0;
+  uint64_t range_retries_delta=0,audio_failures_delta=0,conversion_failures_delta=0;
+  uint64_t decoded_fps_interval_x100=0,presented_fps_interval_x100=0;
 };
+struct UploadHealth {
+  uint64_t attempts=0,successes=0,failures=0;
+  int last_http_status=0,last_native_error=0;
+};
+inline uint64_t metric_delta(uint64_t current,uint64_t previous) {
+  return current>=previous?current-previous:current;
+}
+inline uint64_t interval_fps_x100(uint64_t delta,uint64_t elapsed_ms) {
+  return elapsed_ms?std::min<uint64_t>(delta,1000000000ULL)*100000ULL/elapsed_ms:0;
+}
+inline bool upload_payload_available(size_t events,size_t samples) {
+  return events>0||samples>0;
+}
 inline double limited(uint64_t number){
   return double(std::min<uint64_t>(number,1000000000ULL));
 }
@@ -164,7 +181,8 @@ inline double limited(uint64_t number){
 inline std::string report(const std::vector<Event>& events,
                           const PlaybackMetrics& m=PlaybackMetrics{},
                           const std::vector<PerformanceSample>& performance={},
-                          uint64_t session_nonce=0) {
+                          uint64_t session_nonce=0,
+                          const UploadHealth& upload=UploadHealth{}) {
   picojson::object root;
   const auto timestamp=std::time(nullptr);
   std::tm utc={};
@@ -191,6 +209,16 @@ inline std::string report(const std::vector<Event>& events,
   root["reason"]=picojson::value("automatic_playback_diagnostic");
   root["videoBackend"]=picojson::value("avplayer_cpu_sse2_worker_videoout");
   root["audioBackend"]=picojson::value("avplayer_pcm16_audioout_48k");
+  // Previous upload attempts are only visible in the next accepted report.
+  // They cannot disclose a network outage while the network is still down.
+  picojson::object uploadState;
+  uploadState["attempts"]=picojson::value(limited(upload.attempts));
+  uploadState["successes"]=picojson::value(limited(upload.successes));
+  uploadState["failures"]=picojson::value(limited(upload.failures));
+  uploadState["last_http_status"]=picojson::value(double(std::max(0,
+      std::min(599,upload.last_http_status))));
+  uploadState["last_native_error"]=picojson::value(double(upload.last_native_error));
+  root["uploadHealth"]=picojson::value(uploadState);
   picojson::object metrics;
   metrics["decoder_width"]=picojson::value(limited(m.decoder_width));
   metrics["decoder_height"]=picojson::value(limited(m.decoder_height));
@@ -241,6 +269,16 @@ inline std::string report(const std::vector<Event>& events,
     sample["unix_seconds"]=picojson::value(double(std::max<std::time_t>(0,p.observed_at)));
     sample["frames"]=picojson::value(limited(v.frames));
     sample["frame_delta"]=picojson::value(limited(p.frame_delta));
+    sample["interval_ms"]=picojson::value(limited(p.interval_ms));
+    sample["presented_delta"]=picojson::value(limited(p.presented_delta));
+    sample["skipped_delta"]=picojson::value(limited(p.skipped_delta));
+    sample["audio_buffers_delta"]=picojson::value(limited(p.audio_buffers_delta));
+    sample["range_bytes_delta"]=picojson::value(limited(p.range_bytes_delta));
+    sample["range_retries_delta"]=picojson::value(limited(p.range_retries_delta));
+    sample["audio_failures_delta"]=picojson::value(limited(p.audio_failures_delta));
+    sample["conversion_failures_delta"]=picojson::value(limited(p.conversion_failures_delta));
+    sample["decoded_fps_interval_x100"]=picojson::value(limited(p.decoded_fps_interval_x100));
+    sample["presented_fps_interval_x100"]=picojson::value(limited(p.presented_fps_interval_x100));
     sample["elapsed_ms"]=picojson::value(limited(v.elapsed_ms));
     sample["effective_fps_x100"]=picojson::value(limited(v.effective_fps_x100));
     sample["decoder_width"]=picojson::value(limited(v.decoder_width));
@@ -293,6 +331,28 @@ inline std::string report(const std::vector<Event>& events,
   }
   root["events"]=picojson::value(samples);
   return picojson::value(root).serialize();
+}
+// Reject a misleading HTTP 201 that did not acknowledge the expected file.
+// A successful GitHub Contents create returns both content.path/sha and commit.sha.
+inline bool github_create_receipt(const std::string& response,
+                                  const std::string& expected_path) {
+  picojson::value document;
+  if(!picojson::parse(document,response).empty()||
+     !document.is<picojson::object>())return false;
+  const auto& root=document.get<picojson::object>();
+  auto content=root.find("content"),commit=root.find("commit");
+  if(content==root.end()||commit==root.end()||
+     !content->second.is<picojson::object>()||
+     !commit->second.is<picojson::object>())return false;
+  const auto& c=content->second.get<picojson::object>();
+  const auto& t=commit->second.get<picojson::object>();
+  auto path=c.find("path"),fileSha=c.find("sha"),commitSha=t.find("sha");
+  return path!=c.end()&&fileSha!=c.end()&&commitSha!=t.end()&&
+    path->second.is<std::string>()&&fileSha->second.is<std::string>()&&
+    commitSha->second.is<std::string>()&&
+    path->second.get<std::string>()==expected_path&&
+    !fileSha->second.get<std::string>().empty()&&
+    !commitSha->second.get<std::string>().empty();
 }
 inline bool safe_token(const std::string& token) {
   if(token.empty()||token.size()>1024)return false;

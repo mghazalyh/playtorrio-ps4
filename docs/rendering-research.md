@@ -71,3 +71,10 @@ The existing native VideoOut surface still receives CPU-produced RGB32. It is **
 ## November 4: Chunk-continuous PCM16 resampling correction
 
 A source review after the initial audio worker implementation found two independent PCM errors: the signed interpolation formula incorrectly rounded negative samples, including zero-fraction 48 kHz passthrough, and 44.1/32 kHz interpolation restarted at each arbitrary decoded PCM chunk boundary. The new `src/audio_pcm.hpp` implementation carries a rational output position plus the last decoded input frame between chunks. Fractional samples at a chunk edge wait for the next input frame instead of duplicating the edge sample. It preserves bounded output and the original first-two-channel multichannel behavior, not a full surround downmix. Portable optimized and ASan/UBSan regressions passed locally; audible results on PS4/shadPS4 and the newly requested native CI build are pending owner verification.
+
+
+## November 5: Native NV12 stride fallback hardening (verification pending)
+
+The 1080p native VideoOut path retains full per-pixel resolution, aspect-preserving presentation, cropped BT.709 conversion, SSE2 conversion, separate worker and paced PCM AudioOut. An implementation defect was identified for decoders reporting zero pitch on non-64-aligned widths: the previous fallback incorrectly assumed a tightly packed width. The video worker now computes 64-byte-aligned NV12 row pitch only when the decoder omits it, and rejects impossible supplied pitches instead of silently substituting a different stride. Regression tests cover 1920 and nonstandard width fallback and invalid metadata.
+
+This is a deterministic plane-addressing correctness fix, **not** proof of cinematic visual quality. The physical PS4 has not been tested. Piglet GPU video textures, original FFmpeg/libmpv fallback, alternate codec support, measured audio/video sync and guaranteed 1080p source selection remain separate milestones. Do not describe those reference-player backends as incorporated.

@@ -1,3 +1,17 @@
+## 2026-11-05: Critical PS4 telemetry upload-gap fix, receipt verification, interval flight recorder and NV12 pitch guard (PR #2 BUILD PENDING)
+
+**Owner priority:** Treat telemetry as mission-critical diagnostic instrumentation and preserve Full-HD movie quality. Make one code change batch, push the branch once to trigger the normal native PS4 workflow, and STOP. Owner explicitly forbids checking any build status, job, run or artifact after the push.
+
+**Source-confirmed telemetry bug:** `ps4/telemetry.cpp::update` scheduled five-second performance uploads even after a successful send had cleared the event buffer. `send` immediately rejected all empty-event batches, so prolonged playback with only periodic samples could stop producing private reports. This is corrected: samples-only reporting is eligible. GitHub HTTP 201 now additionally requires the API creation receipt's matching path and content/commit SHAs; HTTP success alone is no longer logged as upload PASS. Fixed-size, redacted `uploadHealth` counters track attempts, failures, successes and last HTTP/native codes for future successful uploads. Samples now include true interval decoded/presented FPS and deltas for skipped frames, AudioOut grains/errors, network bytes/retries and conversion failures. The sample interval uses the monotonic clock, not wall-time estimates.
+
+**Video correctness:** `ps4/video_player.cpp` now resolves absent NV12 decoder pitch using 64-byte row alignment for nonstandard widths and rejects invalid pitch metadata. The existing 1080p CPU SSE2 frame rendering and 48 kHz audio processing are preserved. This does NOT add Piglet GPU textures, FFmpeg/libmpv, verified HD output or an audio downmix.
+
+**Changed code/tests/docs:** `src/telemetry_policy.hpp`, `ps4/telemetry.cpp`, `ps4/video_player.cpp`, `src/nv12_scaler.hpp`, `tests/telemetry_test.cpp`, `tests/nv12_scaler_test.cpp`, `docs/ps4-telemetry.md`, `docs/rendering-research.md` and this handover. Host ASan/UBSan smoke tests of the extracted interval and pitch math passed; full GitHub portable regressions and OpenOrbis native build remain PENDING owner verification. **Private TorriODB HTTP 201 on a PS4 has not yet been demonstrated.** The `playtorrio/diagnostics/ps4` directory was absent when last checked. Verify local settings `telemetryEnabled=true`, authorized Contents-write `telemetryToken`, `githubSyncEnabled=false`, and private PS4 upload receipt before interpreting missing reports.
+
+**Runtime limits:** PS4 telemetry cannot deliver data if its network/credential is broken, or after a hard crash before upload. `video_presented_frames` means UI blit attempts, not confirmed physical scanout. `audio_buffers` means accepted AudioOut calls, not proof of audible output. Original-quality, artifact-free 1080p must still be assessed on a physical PS4; no hardware rendering result or build success is claimed. Do not check builds.
+
+---
+
 ## 2026-11-04: PS4 PCM16 signed rounding and streaming resampler phase fix (PR #2, NEW CI PENDING)
 
 **Snapshot / scope:** On branch `ps4-fullhd-debrid-quality` at baseline HEAD `0e28132d32b535bd58a1ee8a82beca1387fc4ba9`, main remains `4b7836684c3b06ad6f6c7028e3ab487420b6e1f6`. The exact commit containing this entry is the PR branch HEAD after the one atomic ref update. The owner explicitly forbids checking or polling build statuses; do NOT override that instruction from older handovers.
