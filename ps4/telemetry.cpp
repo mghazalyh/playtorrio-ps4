@@ -36,7 +36,8 @@ public:
       std::lock_guard<std::mutex> guard(mutex_);
       enabled_=enabled;
       token_=enabled?std::move(token):std::string();
-      if(!enabled_){events_.clear();metrics_={};pending_=false;}
+      if(!enabled_){events_.clear();samples_.clear();metrics_={};pending_=false;
+        last_sample_at_={};last_sample_frames_=0;}
       if(enabled_&&!worker_.joinable()) {
         try {worker_=std::thread([this]{loop();});}
         catch(const std::exception&){enabled_=false;token_.clear();}
@@ -50,6 +51,10 @@ public:
   void record(ptvtelemetry::Code code,int http,int native,uint64_t count) {
     std::lock_guard<std::mutex> guard(mutex_);
     if(!enabled_||stopping_)return;
+    if(code==ptvtelemetry::Code::SourceRequested ||
+       code==ptvtelemetry::Code::PlaybackStarted){
+      samples_.clear();last_sample_at_={};last_sample_frames_=0;metrics_={};
+    }
     if(events_.size()>=24)events_.erase(events_.begin());
     events_.push_back({++serial_,{code,std::time(nullptr),http,native,count}});
     // An opted-in session leaves a report even if nothing fails.
@@ -68,11 +73,26 @@ public:
   }
   void update(const ptvtelemetry::PlaybackMetrics& metrics) {
     std::lock_guard<std::mutex> guard(mutex_);
-    if(enabled_&&!stopping_)metrics_=metrics;
+    if(!enabled_||stopping_)return;
+    metrics_=metrics;
+    const auto now=std::chrono::steady_clock::now();
+    if(last_sample_at_==std::chrono::steady_clock::time_point{}||
+       now-last_sample_at_>=std::chrono::seconds(5)){
+      ptvtelemetry::PerformanceSample sample;
+      sample.observed_at=std::time(nullptr);
+      sample.metrics=metrics;
+      sample.frame_delta=metrics.frames>=last_sample_frames_?
+        metrics.frames-last_sample_frames_:metrics.frames;
+      if(samples_.size()>=24)samples_.erase(samples_.begin());
+      samples_.push_back(sample);
+      last_sample_at_=now;
+      last_sample_frames_=metrics.frames;
+    }
   }
 private:
   bool send(const std::vector<ptvtelemetry::Event>& events,
             const ptvtelemetry::PlaybackMetrics& metrics,
+            const std::vector<ptvtelemetry::PerformanceSample>& samples,
             const std::string& token,uint64_t serial) {
     if(events.empty()||!ptvtelemetry::safe_token(token))return false;
     const std::time_t now=std::time(nullptr);
@@ -87,13 +107,18 @@ private:
     char filename[144]={};
     std::snprintf(filename,sizeof(filename),"%s-%llx-%llu.json",date,
       nonce,static_cast<unsigned long long>(serial));
-    const std::string path="playtorrio/diagnostics/ps4/player/"+std::string(filename);
+    char folder[16]={};
+    if(gmtime_r(&now,&utc))
+      std::strftime(folder,sizeof(folder),"%Y/%m/%d",&utc);
+    else std::snprintf(folder,sizeof(folder),"undated");
+    const std::string path="playtorrio/diagnostics/ps4/player/"+
+      std::string(folder)+"/"+std::string(filename);
     const std::string url=
       "https://api.github.com/repos/mghazalyh/torriodb/contents/"+path;
     picojson::object body;
     body["message"]=picojson::value("diagnostics(ps4): allowlisted player report");
     body["branch"]=picojson::value("main");
-    body["content"]=picojson::value(ptv::base64_encode(ptvtelemetry::report(events,metrics)));
+    body["content"]=picojson::value(ptv::base64_encode(ptvtelemetry::report(events,metrics,samples)));
     try {
       const auto response=ps4net::request(url,"PUT",{
         {"Authorization","Bearer "+token},
@@ -132,10 +157,11 @@ private:
       const uint64_t through=events_.empty()?0:events_.back().serial;
       const std::string token=token_;
       const auto metrics=metrics_;
+      const auto samples=samples_;
       pending_=false;
       last_attempt_=std::chrono::steady_clock::now();
       lock.unlock();
-      const bool sent=send(batch,metrics,token,through);
+      const bool sent=send(batch,metrics,samples,token,through);
       lock.lock();
       if(sent) {
         events_.erase(std::remove_if(events_.begin(),events_.end(),
@@ -154,6 +180,9 @@ private:
   std::thread worker_;
   std::vector<Item> events_;
   ptvtelemetry::PlaybackMetrics metrics_{};
+  std::vector<ptvtelemetry::PerformanceSample> samples_;
+  std::chrono::steady_clock::time_point last_sample_at_{};
+  uint64_t last_sample_frames_=0;
   std::string token_;
   uint64_t serial_=0;
   bool stopping_=false,enabled_=false,pending_=false;

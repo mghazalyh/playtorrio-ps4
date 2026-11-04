@@ -1,3 +1,15 @@
+## 2026-11-04: Windows/iOS telemetry parity and PS4 Telegram build link
+
+**Owner request:** Reuse private TorriODB telemetry on PS4 to avoid manual console log transfer; trigger one GitHub PR build and Telegram notification with the exact run/artifacts URL; do not poll for the build result.
+
+**Source review:** Active `mghazalyh/ptv3` branch `parity-floating-player-both` (5e178caff51161f5358cd19802ecfafb6f12e28f) uses WindowsPlaybackTelemetry, IosAudioTelemetry, PlayerDebugTelemetry, fixed event codes, opt-in, 24-event/24-sample bounds, five-second player snapshots, 30-second upload throttles, numeric audio/video facts, buildCommit/buildRun and private GitHub Contents API uploads. The private TorriODB README records migration of 3,914 JSON reports into UTC year/month/day folders on November 4.
+
+**PS4 work:** Add build provenance and UTC timestamps, 24 rolling five-second playback samples with frame deltas, numeric audio channel and sample-rate diagnostics, fresh buffering/timeout counters and UTC-partitioned PS4 archive path `playtorrio/diagnostics/ps4/player/YYYY/MM/DD/`. Preserve explicit telemetry opt-in, existing separate TorriODB token/fallback, HTTP PUT/201 success criteria, retry and throttling. Never enable watchlist sync, transmit media or console identifiers, or claim runtime proof from compilation. New portable regression assertions and `docs/ps4-telemetry.md`.
+
+**Build/notifications:** The single PR #2 branch push triggers native OpenOrbis PKG and emulator ZIP after portable tests. New PR-only Telegram notification job sends exact Actions run/artifact URL after build result, including failures. It requires PS4 repository `TELEGRAM_BOT_TOKEN` secret; optional `TELEGRAM_CHANNEL_ID` defaults to historical PlayTorrio destination. Without that secret no actual Telegram delivery is possible; job reports failure instead of skipping silently. Release upload steps are restricted to main pushes; do not touch stable v1.5.0.
+
+**Verification:** Baseline PS4 branch 2eb74594db1af9f1c2157ee4108b3f43bd459214. New CI, shadPS4/console HTTP 201 upload, actual video/audio and Telegram delivery remain PENDING. Owner explicitly forbids polling for this build; do not start duplicate builds. The console must have local `telemetryEnabled=true` with Contents-write token to send private reports.
+
 ## 2026-11-04: Bit-exact SSE2 Full-HD conversion optimization (PR #2)
 
 **Current branch and verification baseline:** ps4-fullhd-debrid-quality HEAD 7d449f4f13bdcba61d62e9a3f8cf3cabc27a2c6e; [PS4 CI #197](https://github.com/mghazalyh/playtorrio-ps4/actions/runs/41282973230) succeeded on November 1, 2026, after earlier #194. Main remains at 4b7836684c3b06ad6f6c7028e3ab487420b6e1f6; the published v1.5.0 release is unchanged.

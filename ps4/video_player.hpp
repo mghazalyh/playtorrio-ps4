@@ -51,6 +51,7 @@ private:
   int inputW_=0,inputH_=0,inputPitch_=0,visibleW_=0,visibleH_=0;
   bool fullRange_=false;
   std::atomic<uint64_t> audioBuffers_{0};
+  std::atomic<uint64_t> audioChannels_{0},audioSampleRateHz_{0};
   std::atomic<bool> audioFormatUnsupported_{false};
   int last_error_=0;
   std::atomic<bool> audioRunning_{false};

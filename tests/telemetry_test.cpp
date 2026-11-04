@@ -85,6 +85,30 @@ int main() {
   assert(metrics.at("avg_convert_us").get<double>()==12000);
   assert(metrics.at("stall_count").get<double>()==2);
   assert(metrics.at("audio_format_unsupported").get<bool>());
+  assert(metrics.at("audio_channels").get<double>()==0);
+  assert(metrics.at("audio_sample_rate_hz").get<double>()==0);
+  assert(enriched.get<picojson::object>().at("timestampUtc").is<std::string>());
+  assert(enriched.get<picojson::object>().at("buildCommit").is<std::string>());
+  assert(enriched.get<picojson::object>().at("buildRun").is<std::string>());
+  assert(enriched.get<picojson::object>().at("sampleIntervalSeconds").get<double>()==5.0);
+  snapshot.audio_channels=6;snapshot.audio_sample_rate_hz=48000;
+  std::vector<ptvtelemetry::PerformanceSample> history={
+    {1730419200,snapshot,60},{1730419205,snapshot,120}
+  };
+  picojson::value sampled;
+  assert(picojson::parse(sampled,ptvtelemetry::report(events,snapshot,history)).empty());
+  const auto& steps=sampled.get<picojson::object>()
+      .at("performanceSamples").get<picojson::array>();
+  assert(steps.size()==2);
+  assert(steps[1].get<picojson::object>().at("frame_delta").get<double>()==120);
+  assert(steps[0].get<picojson::object>().at("audio_channels").get<double>()==6);
+  assert(steps[1].get<picojson::object>().at("audio_sample_rate_hz").get<double>()==48000);
+  std::vector<ptvtelemetry::PerformanceSample> overflowing(31,history[0]);
+  picojson::value cappedSamples;
+  assert(picojson::parse(cappedSamples,ptvtelemetry::report(events,snapshot,overflowing)).empty());
+  assert(cappedSamples.get<picojson::object>().at("performanceSamples")
+      .get<picojson::array>().size()==24);
+  assert(ptvtelemetry::report(events,snapshot,history).find("https://")==std::string::npos);
   assert(ptvtelemetry::report(events,snapshot).find("https://")==std::string::npos);
   assert(ptvtelemetry::report(events,snapshot).find("example_token")==std::string::npos);
   snapshot.frames=UINT64_MAX;

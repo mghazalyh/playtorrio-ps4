@@ -2,9 +2,17 @@
 #include <algorithm>
 #include <cstdint>
 #include <ctime>
+#include <cstdio>
 #include <string>
 #include <vector>
 #include "../vendor/picojson.h"
+
+#ifndef PTV_PS4_BUILD_COMMIT
+#define PTV_PS4_BUILD_COMMIT "unknown"
+#endif
+#ifndef PTV_PS4_BUILD_RUN
+#define PTV_PS4_BUILD_RUN "0"
+#endif
 
 namespace ptvtelemetry {
 enum class Code {
@@ -117,15 +125,36 @@ struct PlaybackMetrics {
   uint64_t avg_convert_us=0,max_convert_us=0,avg_blit_us=0;
   uint64_t max_frame_gap_ms=0,stall_count=0;
   uint64_t range_requests=0,decoder_read_calls=0,audio_buffers=0;
+  uint64_t audio_channels=0,audio_sample_rate_hz=0;
   bool audio_format_unsupported=false;
+};
+// Five-second, bounded, privacy-safe performance history.
+struct PerformanceSample {
+  std::time_t observed_at=0;
+  PlaybackMetrics metrics{};
+  uint64_t frame_delta=0;
 };
 inline double limited(uint64_t number){
   return double(std::min<uint64_t>(number,1000000000ULL));
 }
 // No free text can reach the serialized report; even failure codes are typed.
 inline std::string report(const std::vector<Event>& events,
-                          const PlaybackMetrics& m=PlaybackMetrics{}) {
+                          const PlaybackMetrics& m=PlaybackMetrics{},
+                          const std::vector<PerformanceSample>& performance={}) {
   picojson::object root;
+  const auto timestamp=std::time(nullptr);
+  std::tm utc={};
+  char utcText[32]={};
+#if defined(_WIN32)
+  const bool hasUtc=gmtime_s(&utc,&timestamp)==0;
+#else
+  const bool hasUtc=gmtime_r(&timestamp,&utc)!=nullptr;
+#endif
+  if(hasUtc)std::strftime(utcText,sizeof(utcText),"%Y-%m-%dT%H:%M:%SZ",&utc);
+  root["timestampUtc"]=picojson::value(hasUtc?utcText:"unavailable");
+  root["appVersion"]=picojson::value("1.5.0-experimental");
+  root["buildCommit"]=picojson::value(PTV_PS4_BUILD_COMMIT);
+  root["buildRun"]=picojson::value(PTV_PS4_BUILD_RUN);
   root["schema"]=picojson::value(1.0);
   root["kind"]=picojson::value("ps4_playback_capability_diagnostic");
   root["platform"]=picojson::value("ps4");
@@ -150,8 +179,40 @@ inline std::string report(const std::vector<Event>& events,
   metrics["range_requests"]=picojson::value(limited(m.range_requests));
   metrics["decoder_read_calls"]=picojson::value(limited(m.decoder_read_calls));
   metrics["audio_buffers"]=picojson::value(limited(m.audio_buffers));
+  metrics["audio_channels"]=picojson::value(limited(m.audio_channels));
+  metrics["audio_sample_rate_hz"]=picojson::value(limited(m.audio_sample_rate_hz));
   metrics["audio_format_unsupported"]=picojson::value(m.audio_format_unsupported);
   root["playback"]=picojson::value(metrics);
+  root["sampleIntervalSeconds"]=picojson::value(5.0);
+  picojson::array history;
+  const size_t begin=performance.size()>24?performance.size()-24:0;
+  for(size_t i=begin;i<performance.size();++i){
+    const auto& p=performance[i];
+    const auto& v=p.metrics;
+    picojson::object sample;
+    sample["unix_seconds"]=picojson::value(double(std::max<std::time_t>(0,p.observed_at)));
+    sample["frames"]=picojson::value(limited(v.frames));
+    sample["frame_delta"]=picojson::value(limited(p.frame_delta));
+    sample["elapsed_ms"]=picojson::value(limited(v.elapsed_ms));
+    sample["effective_fps_x100"]=picojson::value(limited(v.effective_fps_x100));
+    sample["decoder_width"]=picojson::value(limited(v.decoder_width));
+    sample["decoder_height"]=picojson::value(limited(v.decoder_height));
+    sample["output_width"]=picojson::value(limited(v.output_width));
+    sample["output_height"]=picojson::value(limited(v.output_height));
+    sample["avg_convert_us"]=picojson::value(limited(v.avg_convert_us));
+    sample["max_convert_us"]=picojson::value(limited(v.max_convert_us));
+    sample["avg_blit_us"]=picojson::value(limited(v.avg_blit_us));
+    sample["max_frame_gap_ms"]=picojson::value(limited(v.max_frame_gap_ms));
+    sample["stall_count"]=picojson::value(limited(v.stall_count));
+    sample["range_requests"]=picojson::value(limited(v.range_requests));
+    sample["decoder_read_calls"]=picojson::value(limited(v.decoder_read_calls));
+    sample["audio_buffers"]=picojson::value(limited(v.audio_buffers));
+    sample["audio_channels"]=picojson::value(limited(v.audio_channels));
+    sample["audio_sample_rate_hz"]=picojson::value(limited(v.audio_sample_rate_hz));
+    sample["audio_format_unsupported"]=picojson::value(v.audio_format_unsupported);
+    history.emplace_back(sample);
+  }
+  root["performanceSamples"]=picojson::value(history);
   picojson::array samples;
   const size_t first=events.size()>24?events.size()-24:0;
   for(size_t i=first;i<events.size();++i) {

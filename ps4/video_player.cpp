@@ -147,7 +147,6 @@ bool Player::start(const std::string& url,std::string& error){
     sceAvPlayerClose(handle_);handle_=nullptr;status_=Status::Failed;return false;
   }
   ps4diag::note("PLAYBACK","PASS AvPlayer accepted video stream (URL excluded)");
-  ps4diag::event(ptvtelemetry::Code::PlaybackStarted);
   status_=Status::Opening;
   frames_=0;
   totalConvertUs_=0;
@@ -158,7 +157,9 @@ bool Player::start(const std::string& url,std::string& error){
   inputW_=inputH_=inputPitch_=visibleW_=visibleH_=0;
   fullRange_=false;
   audioBuffers_=0;
+  audioChannels_=0;audioSampleRateHz_=0;
   audioFormatUnsupported_=false;
+  ps4diag::event(ptvtelemetry::Code::PlaybackStarted);
   ps4diag::playback_metrics({});
   preferredTracks_=false;
   lastProgressBucket_=-1;
@@ -196,6 +197,10 @@ void Player::audioLoop(){
     AvFrame frame={};
     if(!handle_ || sceAvPlayerGetAudioData(handle_,&frame)==0 ||
        frame.data==nullptr){sceKernelUsleep(9000);continue;}
+    const uint64_t channels=(uint64_t)frame.details.audio.channels;
+    const uint64_t sampleRate=(uint64_t)frame.details.audio.sampleRate;
+    audioChannels_=channels>=1&&channels<=16?channels:0;
+    audioSampleRateHz_=sampleRate>=8000&&sampleRate<=384000?sampleRate:0;
     if(frame.details.audio.channels!=2 ||
        frame.details.audio.sampleRate!=48000){
       audioFormatUnsupported_=true;
@@ -246,6 +251,8 @@ void Player::publishMetrics(){
   metrics.range_requests=remote_.requests();
   metrics.decoder_read_calls=remoteReads_.load();
   metrics.audio_buffers=audioBuffers_.load();
+  metrics.audio_channels=audioChannels_.load();
+  metrics.audio_sample_rate_hz=audioSampleRateHz_.load();
   metrics.audio_format_unsupported=audioFormatUnsupported_.load();
   ps4diag::playback_metrics(metrics);
 }
@@ -259,6 +266,7 @@ bool Player::render(Scene2D& scene){
   const int elapsed=bufferingSeconds();
   if(status_==Status::Opening){
     if(elapsed>=60){
+      publishMetrics();
       status_=Status::Failed;
       ps4diag::event(ptvtelemetry::Code::DecoderTimeout,0,0,remoteReads_.load());
        ps4diag::note("PLAYBACK","FAIL no frames in 60s; reads="+
@@ -268,6 +276,7 @@ bool Player::render(Scene2D& scene){
     }
     if(elapsed>=10&&elapsed/10!=lastProgressBucket_){
       lastProgressBucket_=elapsed/10;
+      publishMetrics();
       ps4diag::event(ptvtelemetry::Code::Buffering,0,0,(uint64_t)elapsed);
        ps4diag::note("PLAYBACK","BUFFERING seconds="+std::to_string(elapsed)+
         " reads="+std::to_string(remoteReads_.load())+
