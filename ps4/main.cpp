@@ -683,7 +683,7 @@ int main(){
   sceUserServiceInitialize(&params);
   int user=-1;sceUserServiceGetInitialUser(&user);
   int pad=scePadOpen(user,0,0,nullptr);
-  Scene2D* screen=new Scene2D(1280,720,4);
+  Scene2D* screen=new Scene2D(1920,1080,4);
   if(!screen->Init(0xC000000,2)){
     ps4diag::note("BOOT","FAIL OpenOrbis Scene2D initialized with error");
     return 1;
@@ -833,6 +833,7 @@ int main(){
     preparedError.clear();
     const auto config=settings;
     ps4diag::note("CONTROL","Requesting playable video from local sources");
+    ps4diag::event(ptvtelemetry::Code::SourceRequested);
     std::thread([&,config,mediaType,mediaId](){
       ps4source::Selection found;
       try{
@@ -1279,6 +1280,8 @@ int main(){
         if(pendingSettings.ok()){
           settings=std::move(pendingSettings.settings);
           imported=true;
+          ps4diag::configure_telemetry(settings);
+          ps4diag::event(ptvtelemetry::Code::SettingsLoaded);
           requestNative(settings);
           parseError="Local settings loaded";
         }else{
@@ -1363,6 +1366,7 @@ int main(){
         parseError=openingStatus;
         if(panel==2)detailMessage=openingStatus;
         ps4diag::note("PLAYBACK","FAIL resolution did not yield a supported stream");
+        ps4diag::event(ptvtelemetry::Code::SourceResolutionFailed);
       }else{
         std::string failure;
         if(player.start(openingUrl,failure)){
@@ -1435,6 +1439,6 @@ int main(){
     screen->FrameBufferSwap();
     ++frame;
     if(frame==30)ps4diag::note("RENDER","PASS first 30 frames of UI presented");
-    sceKernelUsleep(42000);
+    sceKernelUsleep(viewing ? 1000 : 8000);
   }
 }

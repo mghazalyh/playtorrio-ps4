@@ -9,6 +9,7 @@
 #include <cctype>
 #include <limits>
 #include <string>
+#include <mutex>
 
 // The OpenOrbis header declares sceHttpSetAutoRedirect as an untyped
 // placeholder; this alias preserves its actual PS4 two-argument ABI.
@@ -16,6 +17,7 @@ extern "C" int32_t ptvHttpSetAutoRedirect(int32_t,int32_t)
     asm("sceHttpSetAutoRedirect");
 namespace ps4net {
 static int networkPool=0,ssl=0,http=0;
+static std::mutex initMutex;
 static std::string trim(std::string s){
   const auto isSpace=[](unsigned char c){return c==' '||c=='\t'||c=='\r'||c=='\n';};
   while(!s.empty()&&isSpace((unsigned char)s.front()))s.erase(s.begin());
@@ -51,6 +53,7 @@ static void readResponseHeaders(int req,Response& r){
   }
 }
 bool init(int& error) {
+  std::lock_guard<std::mutex> lock(initMutex);
   error=0;
   if(http>0)return true;
   if((error=sceSysmoduleLoadModuleInternal(ORBIS_SYSMODULE_INTERNAL_NET))<0)return false;
@@ -132,6 +135,7 @@ done:
   return result;
 }
 void shutdown(){
+  std::lock_guard<std::mutex> lock(initMutex);
   if(http>0){sceHttpTerm(http);http=0;}
   if(ssl>0){sceSslTerm();ssl=0;}
   if(networkPool>0){sceNetPoolDestroy(networkPool);networkPool=0;}

@@ -70,6 +70,14 @@ bool import_settings(const std::string& json,Settings& output,std::string& error
   if(s.torbox_api_key.empty())s.torbox_api_key=field(o,"torbox_api_key");
   s.github_token=field(o,"githubToken");
   if(s.github_token.empty())s.github_token=field(o,"github_token");
+  auto telemetryEnabled=o.find("telemetryEnabled");
+  if(telemetryEnabled!=o.end()&&telemetryEnabled->second.is<bool>())
+    s.telemetry_enabled=telemetryEnabled->second.get<bool>();
+  s.telemetry_token=field(o,"telemetryToken");
+  if(!s.telemetry_token.empty() &&
+     (s.telemetry_token.size()>1024 ||
+      s.telemetry_token.find_first_of(" \r\n\t")!=std::string::npos))
+    s.telemetry_token.clear();
   auto r=field(o,"githubRepo");if(r.empty())r=field(o,"github_repo");
   if(!r.empty()&&r.find(' ')==std::string::npos&&r.find("..")==std::string::npos&&r.find('/')!=std::string::npos)s.github_repo=r;
   auto b=field(o,"githubBranch");if(b.empty())b=field(o,"github_branch");

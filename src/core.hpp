@@ -10,6 +10,8 @@ struct Settings {
   std::string tmdb_api_key; // TMDB v3 API key; never print it in logs.
   bool github_sync_enabled = false; // Opt-in only, disabled by default.
   std::string github_token;
+  bool telemetry_enabled = false; // Separate diagnostics permission, not watchlist sync.
+  std::string telemetry_token; // Optional fallback to githubToken with explicit opt-in.
   std::string github_repo = "mghazalyh/torriodb";
   std::string github_branch = "main";
   std::string direct_stream_url; // Optional HTTPS video for playback testing.

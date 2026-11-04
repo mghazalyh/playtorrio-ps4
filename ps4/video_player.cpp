@@ -2,6 +2,7 @@
 #include "diagnostics.hpp"
 #include "native_net.hpp"
 #include "../src/nv12_scaler.hpp"
+#include "../src/audio_pcm.hpp"
 #include <cstdlib>
 #include <cstring>
 #include <algorithm>
@@ -10,6 +11,7 @@
 #include <cctype>
 #include <limits>
 #include <cstdio>
+#include <exception>
 #include <orbis/AudioOut.h>
 #include <orbis/Sysmodule.h>
 #include <orbis/UserService.h>
@@ -17,31 +19,6 @@
 
 namespace ps4video {
 namespace {
-constexpr size_t kRemoteBlock=2*1024*1024;
-// Strictly parse RFC 7233 Content-Range: "bytes start-end/total".
-bool parseContentRange(const std::string& input,uint64_t& begin,
-                       uint64_t& finish,uint64_t& total){
-  const std::string prefix="bytes ";
-  if(input.compare(0,prefix.size(),prefix)!=0)return false;
-  size_t pos=prefix.size();
-  auto number=[&](uint64_t& out)->bool{
-    if(pos>=input.size()||input[pos]<'0'||input[pos]>'9')return false;
-    uint64_t value=0;
-    do{
-      const int digit=input[pos]-'0';
-      if(value>(std::numeric_limits<uint64_t>::max()-digit)/10)return false;
-      value=value*10+digit;
-      ++pos;
-    }while(pos<input.size()&&input[pos]>='0'&&input[pos]<='9');
-    out=value;
-    return true;
-  };
-  if(!number(begin)||pos>=input.size()||input[pos++]!='-'||
-     !number(finish)||pos>=input.size()||input[pos++]!='/'||
-     !number(total)||pos!=input.size())return false;
-  return total>0&&total<=(uint64_t)std::numeric_limits<int64_t>::max()&&
-         begin<=finish&&finish<total;
-}
 bool isHls(const std::string& url){
   const auto until=url.substr(0,url.find('?'));
   return until.find(".m3u8")!=std::string::npos;
@@ -58,7 +35,8 @@ bool Player::prepareRemote(const std::string& url,std::string& error){
   if(head.status!=200||head.platform_error!=0||!head.has_content_length||
      head.content_length==0||head.content_length>(uint64_t)std::numeric_limits<int64_t>::max()){
     error="Stream does not provide a usable HTTPS HEAD length";
-    ps4diag::note("VIDEO_IO","FAIL remote HEAD metadata");return false;
+    ps4diag::note("VIDEO_IO","FAIL remote HEAD metadata");
+    ps4diag::event(ptvtelemetry::Code::HeadFailed,head.status,head.platform_error);return false;
   }
   // Probe 64 KiB. Servers that ignore Range (HTTP 200) are not safe to
   // stream through shadPS4's buffering HTTP emulation.
@@ -67,31 +45,32 @@ bool Player::prepareRemote(const std::string& url,std::string& error){
   const auto first=ps4net::request(url,"GET",{{"Range",range}},"",(size_t)last+2);
   uint64_t a=0,b=0,n=0;
   if(first.status!=206||first.platform_error!=0||
-     !parseContentRange(first.content_range,a,b,n)||
+     !ptvrange::parse_content_range(first.content_range,a,b,n)||
      a!=0||b!=last||n!=head.content_length||
      first.truncated||first.body.size()!=last+1){
     error="CDN does not supply seekable HTTP 206 byte ranges";
+    ps4diag::event(ptvtelemetry::Code::RangeProbeFailed,first.status,first.platform_error);
     ps4diag::note("VIDEO_IO","FAIL Range http="+std::to_string(first.status)+
       " transport="+std::to_string(first.platform_error)+
       " bytes="+std::to_string(first.body.size())+
       " range_ok="+std::to_string(!first.content_range.empty()));
     return false;
   }
-  remoteUrl_=url;
-  remoteBytes_=n;
-  cacheOffset_=0;
-  cache_.assign(first.body.begin(),first.body.end());
-  readFailureLogged_=false;
   remoteReads_=0;
-  rangeRequests_=0;
+  if(!remote_.start(url,n,first.body,error)){
+    ps4diag::note("VIDEO_IO","FAIL starting linear read-ahead worker");
+    ps4diag::event(ptvtelemetry::Code::RemoteReadFailed);
+    return false;
+  }
   ps4diag::note("VIDEO_IO","PASS seekable media range, total bytes="+std::to_string(n));
   return true;
 }
 int Player::openRemote(void* ptr,const char* name){
   auto* self=static_cast<Player*>(ptr);
   const bool valid=self&&name&&std::strcmp(name,"/ptvremote.mp4")==0&&
-         !self->remoteUrl_.empty()&&self->remoteBytes_>0;
+         self->remote_.ready()&&self->remote_.size()>0;
   ps4diag::note("VIDEO_IO",valid?"PASS AvPlayer file opened":"FAIL AvPlayer file open");
+  if(!valid)ps4diag::event(ptvtelemetry::Code::RemoteOpenFailed);
   return valid?0:-1;
 }
 int Player::closeRemote(void* ptr){
@@ -99,51 +78,15 @@ int Player::closeRemote(void* ptr){
 }
 uint64_t Player::remoteSize(void* ptr){
   auto* self=static_cast<Player*>(ptr);
-  return self?self->remoteBytes_:0;
+  return self?self->remote_.size():0;
 }
 int Player::readRemote(void* ptr,uint8_t* out,uint64_t position,uint32_t length){
   auto* self=static_cast<Player*>(ptr);
-  if(!self||!out||length==0||self->remoteUrl_.empty())return -1;
+  if(!self||!out||length==0)return -1;
   const uint64_t calls=++self->remoteReads_;
   if(calls==1)ps4diag::note("VIDEO_IO","PASS first decoder read callback");
-  std::lock_guard<std::mutex> lock(self->remoteMutex_);
-  if(position>=self->remoteBytes_)return 0;
-  const uint32_t want=(uint32_t)std::min(uint64_t(length),self->remoteBytes_-position);
-  uint32_t copied=0;
-  while(copied<want){
-    const uint64_t offset=position+copied;
-    if(self->cache_.empty()||offset<self->cacheOffset_||
-       offset-self->cacheOffset_>=self->cache_.size()){
-      const uint64_t start=(offset/kRemoteBlock)*kRemoteBlock;
-      const uint64_t end=std::min(self->remoteBytes_-1,start+kRemoteBlock-1);
-      auto response=ps4net::request(self->remoteUrl_,"GET",
-          {{"Range","bytes="+std::to_string(start)+"-"+std::to_string(end)}},
-          "",(size_t)(end-start)+2);
-      uint64_t a=0,b=0,n=0;
-      if(response.status!=206||response.platform_error!=0||
-         response.truncated||!parseContentRange(response.content_range,a,b,n)||
-         a!=start||b!=end||n!=self->remoteBytes_||
-         response.body.size()!=end-start+1){
-        if(!self->readFailureLogged_){
-          ps4diag::note("VIDEO_IO","FAIL remote read http="+
-            std::to_string(response.status)+" transport="+
-            std::to_string(response.platform_error)+" errno="+
-            std::to_string(response.last_errno));
-          self->readFailureLogged_=true;
-        }
-        return copied?int(copied):-1;
-      }
-      self->cacheOffset_=start;
-      self->cache_.assign(response.body.begin(),response.body.end());
-      const uint64_t count=++self->rangeRequests_;
-      if(count==1||count%8==0)ps4diag::note("VIDEO_IO","PASS CDN range chunks="+std::to_string(count));
-    }
-    const size_t into=(size_t)(offset-self->cacheOffset_);
-    const uint32_t available=std::min((size_t)(want-copied),self->cache_.size()-into);
-    std::memcpy(out+copied,self->cache_.data()+into,available);
-    copied+=available;
-  }
-  return (int)copied;
+  // On this callback's small stack, never initiate native libSceHttp.
+  return self->remote_.read(out,position,length);
 }
 void* Player::allocate(void*,uint32_t alignment,uint32_t size){
   if(alignment<sizeof(void*))alignment=sizeof(void*);
@@ -157,12 +100,14 @@ bool Player::start(const std::string& url,std::string& error){
   if(url.rfind("https://",0)!=0&&url.rfind("http://",0)!=0&&url.rfind("/data/",0)!=0){
     error="Only HTTP(S) or /data/ video sources are supported";
     ps4diag::note("PLAYBACK","FAIL unsupported URL scheme (URL hidden)");
+    ps4diag::event(ptvtelemetry::Code::UnsupportedScheme);
     status_=Status::Failed;return false;
   }
   // Reject HLS playlists: shadPS4 AvPlayer currently does not implement
   // HLS. Downloading HLS as a regular file cannot produce playable video.
   if(isHls(url)){error="HLS playlist playback is unsupported by shadPS4";
     ps4diag::note("PLAYBACK","FAIL HLS format not supported by emulator");
+    ps4diag::event(ptvtelemetry::Code::UnsupportedHls);
     status_=Status::Failed;return false;
   }
   const bool remote=url.rfind("https://",0)==0||url.rfind("http://",0)==0;
@@ -171,6 +116,7 @@ bool Player::start(const std::string& url,std::string& error){
   int sys=sceSysmoduleLoadModule(ORBIS_SYSMODULE_AV_PLAYER);
   if(sys<0){last_error_=sys;error="Cannot load PS4 hardware AvPlayer";
     ps4diag::note("PLAYBACK","FAIL module load="+std::to_string(sys));
+    ps4diag::event(ptvtelemetry::Code::AvModuleFailed,0,sys);
     status_=Status::Failed;return false;
   }
   AvInitData init={};
@@ -191,166 +137,328 @@ bool Player::start(const std::string& url,std::string& error){
   init.defaultLanguage="en";
   handle_=sceAvPlayerInit(&init);
   if(!handle_){error="Cannot initialize PS4 video decoder";status_=Status::Failed;
-    ps4diag::note("PLAYBACK","FAIL sceAvPlayerInit returned null");return false;}
+    ps4diag::note("PLAYBACK","FAIL sceAvPlayerInit returned null");
+    ps4diag::event(ptvtelemetry::Code::AvInitFailed);return false;}
   // The emulator cannot open arbitrary HTTPS URLs as PS4 mounted files.
   // The guest file callbacks above present a seekable remote MP4-compatible
   // byte stream to the emulator's FFmpeg demuxer.
   int ret=sceAvPlayerAddSource(handle_,remote?"/ptvremote.mp4":url.c_str());
   if(ret<0){last_error_=ret;error="PS4 decoder rejected stream source";
     ps4diag::note("PLAYBACK","FAIL AddSource code="+std::to_string(ret));
+    ps4diag::event(ptvtelemetry::Code::AvSourceFailed,0,ret);
     sceAvPlayerClose(handle_);handle_=nullptr;status_=Status::Failed;return false;
   }
   ps4diag::note("PLAYBACK","PASS AvPlayer accepted video stream (URL excluded)");
   status_=Status::Opening;
-  frames_=0;
-  preferredTracks_=false;
-  lastProgressBucket_=-1;
-  loggedInvalidFrame_=false;
+  frames_=0;totalConvertUs_=0;totalBlitUs_=0;maxConvertUs_=0;
+  maxFrameGapMs_=0;stallCount_=0;videoEmptyPolls_=0;
+  videoInvalidFrames_=0;videoConversionFailures_=0;
+  videoPresentedFrames_=0;videoCachedRedraws_=0;videoSkippedFrames_=0;
+  audioEmptyPolls_=0;audioConvertedChunks_=0;
+  audioOutputFailures_=0;audioInvalidChunks_=0;
+  lastDecodedNs_=0;lastStallEvent_={};
+  {
+    std::lock_guard<std::mutex> guard(frameMutex_);
+    for(auto& f:rgbFrames_)f.clear();
+    frontIndex_=0;backIndex_=1;rgbW_=rgbH_=rgbX_=rgbY_=0;
+    inputW_=inputH_=inputPitch_=visibleW_=visibleH_=0;
+    fullRange_=false;frameVersion_=0;
+  }
+  lastDisplayedVersion_=0;lastProgressFrameBucket_=0;lastMetricsAt_={};
+  audioBuffers_=0;audioChannels_=0;audioSampleRateHz_=0;
+  audioFormatUnsupported_=false;preferredTracks_=false;
+  lastProgressBucket_=-1;loggedInvalidFrame_=false;
   startTime_=std::chrono::steady_clock::now();
+  ps4diag::event(ptvtelemetry::Code::PlaybackStarted);
+  ps4diag::playback_metrics({});
   sceUserServiceGetInitialUser(&user_);
-  audioRunning_=true;
-  audioThread_=std::thread([this](){audioLoop();});
+  audioRunning_=true;videoRunning_=true;
+  try {
+    audioThread_=std::thread([this](){audioLoop();});
+    videoThread_=std::thread([this](){videoLoop();});
+  }catch(const std::exception&){
+    videoRunning_=false;audioRunning_=false;
+    ps4diag::event(ptvtelemetry::Code::VideoWorkerFailed);
+    ps4diag::note("VIDEO_THREAD","FAIL video worker initialization");
+    close();status_=Status::Failed;
+    error="Could not start native video worker";return false;
+  }
+  ps4diag::event(ptvtelemetry::Code::VideoWorkerStarted);
+  ps4diag::note("VIDEO_THREAD","PASS dedicated decoder and NV12 conversion thread");
   return true;
+
 }
 void Player::audioLoop(){
-  // PS4 AvPlayer delivers decoded audio separately; output signed 16-bit
-  // stereo 48kHz if the incoming audio matches the hardware port.
-  int sys=sceSysmoduleLoadModuleInternal(ORBIS_SYSMODULE_INTERNAL_AUDIOOUT);
-  if(sys<0){ps4diag::note("AUDIO","SKIP module load error="+std::to_string(sys));return;}
-  int ret=sceAudioOutInit();
-  // 0x8026000E = ORBIS_AUDIO_OUT_ERROR_ALREADY_INIT.
-  // shadPS4 and a real PS4 may have initialized AudioOut already.
-  if(ret<0 && static_cast<uint32_t>(ret)!=0x8026000Eu){
-    ps4diag::note("AUDIO","SKIP init error="+std::to_string(ret));return;
-  }
-  if(static_cast<uint32_t>(ret)==0x8026000Eu)
-    ps4diag::note("AUDIO","INFO AudioOut already initialized; trying port");
-  constexpr int samples=1024;
+  // PS4 AvPlayer yields interleaved PCM16. Preserve every grain, and adapt
+  // mono, multichannel front-pair and 44.1kHz to the fixed 48kHz stereo port.
+  const int sys=sceSysmoduleLoadModuleInternal(ORBIS_SYSMODULE_INTERNAL_AUDIOOUT);
+  if(sys<0){ps4diag::event(ptvtelemetry::Code::AudioModuleFailed,0,sys);
+    ps4diag::note("AUDIO","FAIL module="+std::to_string(sys));return;}
+  const int init=sceAudioOutInit();
+  if(init<0&&static_cast<uint32_t>(init)!=0x8026000Eu){
+    ps4diag::event(ptvtelemetry::Code::AudioInitFailed,0,init);return;}
+  constexpr size_t grain=1024;
   const int port=sceAudioOutOpen(user_,ORBIS_AUDIO_OUT_PORT_TYPE_MAIN,0,
-      samples,48000,ORBIS_AUDIO_OUT_PARAM_FORMAT_S16_STEREO);
-  if(port<0){ps4diag::note("AUDIO","SKIP port error="+std::to_string(port));return;}
-  std::vector<uint8_t> output(samples*2*sizeof(int16_t),0);
-  bool notified=false;
-  while(audioRunning_){
+      (int)grain,48000,ORBIS_AUDIO_OUT_PARAM_FORMAT_S16_STEREO);
+  if(port<0){ps4diag::event(ptvtelemetry::Code::AudioPortFailed,0,port);
+    ps4diag::note("AUDIO","FAIL port="+std::to_string(port));return;}
+  ps4diag::event(ptvtelemetry::Code::AudioPortReady);
+  ptvaudio::ResampleState resampler;
+  std::vector<int16_t> pending,output(grain*2);
+  bool reportedInvalid=false,reportedConversion=false,firstOutput=false;
+  while(audioRunning_.load()){
     if(status_==Status::Paused){sceKernelUsleep(12000);continue;}
     AvFrame frame={};
-    if(!handle_ || sceAvPlayerGetAudioData(handle_,&frame)==0 ||
-       frame.data==nullptr){sceKernelUsleep(9000);continue;}
-    if(frame.details.audio.channels!=2 ||
-       frame.details.audio.sampleRate!=48000){
-      if(!notified){ps4diag::note("AUDIO","SKIP stream format not 48k stereo PCM");notified=true;}
-      sceKernelUsleep(8000);continue;
+    if(!handle_||!sceAvPlayerGetAudioData(handle_,&frame)||!frame.data){
+      ++audioEmptyPolls_;sceKernelUsleep(4000);continue;
     }
-    // Copy no more than the declared returned buffer size.
-    const size_t available=std::min((size_t)frame.details.audio.size,output.size());
-    if(!available){sceKernelUsleep(8000);continue;}
-    std::memset(output.data(),0,output.size());
-    std::memcpy(output.data(),frame.data,available);
-    int result=sceAudioOutOutput(port,output.data());
-    if(result<0){
-      ps4diag::note("AUDIO","FAIL sample output code="+std::to_string(result));
-      break;
+    const unsigned channels=frame.details.audio.channels;
+    const unsigned sampleRate=frame.details.audio.sampleRate;
+    audioChannels_=channels>=1&&channels<=16?channels:0;
+    audioSampleRateHz_=sampleRate>=8000&&sampleRate<=384000?sampleRate:0;
+    if(!ptvaudio::append_pcm48_stereo(
+        static_cast<const uint8_t*>(frame.data),
+        frame.details.audio.size,channels,sampleRate,resampler,pending)){
+      ++audioInvalidChunks_;audioFormatUnsupported_=true;
+      if(!reportedInvalid){reportedInvalid=true;
+        ps4diag::event(ptvtelemetry::Code::AudioUnsupportedFormat,0,0,channels);
+        ps4diag::note("AUDIO","FAIL PCM16 input geometry/queue limit");}
+      sceKernelUsleep(3000);continue;
     }
-    if(!notified){ps4diag::note("AUDIO","PASS first audio buffer submitted");notified=true;}
+    if(channels!=2||sampleRate!=48000){
+      ++audioConvertedChunks_;
+      if(!reportedConversion){reportedConversion=true;
+        ps4diag::event(ptvtelemetry::Code::AudioConverted);
+        ps4diag::note("AUDIO","INFO 48k stereo PCM16 resample/front-pair mapping");}
+    }
+    size_t consumed=0;
+    while(audioRunning_.load()&&pending.size()-consumed>=grain*2){
+      std::memcpy(output.data(),pending.data()+consumed,grain*2*sizeof(int16_t));
+      const int rc=sceAudioOutOutput(port,output.data());
+      if(rc<0){++audioOutputFailures_;
+        ps4diag::event(ptvtelemetry::Code::AudioOutputFailed,0,rc);
+        ps4diag::note("AUDIO","FAIL AudioOut="+std::to_string(rc));
+        audioRunning_=false;break;}
+      consumed+=grain*2;++audioBuffers_;
+      if(!firstOutput){firstOutput=true;
+        ps4diag::event(ptvtelemetry::Code::FirstAudioBuffer);
+        ps4diag::note("AUDIO","PASS first 1024-frame AudioOut grain");}
+    }
+    if(consumed)pending.erase(pending.begin(),pending.begin()+consumed);
   }
   sceAudioOutClose(port);
 }
+void Player::videoLoop(){
+  // Stremio-PS4 inspired ownership: only this thread touches decoded
+  // AvPlayer video frames. CPU conversion occurs before asking for the next
+  // decoder frame; the UI merely blits the completed front buffer.
+  auto previous=std::chrono::steady_clock::time_point{};
+  while(videoRunning_.load()){
+    if(status_==Status::Paused){previous={};sceKernelUsleep(8000);continue;}
+    AvFrame frame={};
+    if(!handle_||!sceAvPlayerGetVideoDataEx(handle_,&frame)||!frame.data){
+      ++videoEmptyPolls_;sceKernelUsleep(2000);continue;
+    }
+    const auto& v=frame.details.video;
+    const int w=(int)v.width,h=(int)v.height;
+    // Missing AvPlayer pitch must use the NV12 decoder's 64-byte row
+    // alignment, not a tightly packed width. Reject malformed supplied pitch.
+    const int pitch=ptvvideo::resolve_nv12_pitch(w,v.pitch);
+    const int cropL=(int)v.cropLeft,cropR=(int)v.cropRight;
+    const int cropT=(int)v.cropTop,cropB=(int)v.cropBottom;
+    const int vw=w-cropL-cropR,vh=h-cropT-cropB;
+    if(w<2||h<2||w>4096||h>2160||pitch==0||
+       cropL<0||cropR<0||cropT<0||cropB<0||vw<2||vh<2){
+      ++videoInvalidFrames_;
+      if(!loggedInvalidFrame_){loggedInvalidFrame_=true;
+        ps4diag::event(ptvtelemetry::Code::InvalidFrame,0,0,(uint64_t)w);
+        ps4diag::note("VIDEO_THREAD","FAIL invalid decoded frame/crop");}
+      continue;
+    }
+    const float scale=std::min(1920.f/vw,1080.f/vh);
+    const int outW=std::max(2,((int)(vw*scale)/2)*2);
+    const int outH=std::max(2,((int)(vh*scale)/2)*2);
+    if(outW>1920||outH>1080){++videoInvalidFrames_;continue;}
+    const auto began=std::chrono::steady_clock::now();
+    bool converted=false;
+    try{
+      converted=ptvvideo::scale_nv12(static_cast<const uint8_t*>(frame.data),
+         w,h,pitch,cropL,cropT,vw,vh,outW,outH,v.fullRange!=0,
+         rgbFrames_[backIndex_]);
+    }catch(const std::exception&){
+      ps4diag::event(ptvtelemetry::Code::ConversionFailed);
+      ps4diag::note("VIDEO_THREAD","FAIL frame memory allocation");
+      videoRunning_=false;status_=Status::Failed;return;
+    }
+    if(!converted){++videoConversionFailures_;
+      if(!loggedInvalidFrame_){loggedInvalidFrame_=true;
+        ps4diag::event(ptvtelemetry::Code::ConversionFailed);
+        ps4diag::note("VIDEO_THREAD","FAIL NV12 conversion");}
+      continue;
+    }
+    const auto now=std::chrono::steady_clock::now();
+    const auto us=(uint64_t)std::chrono::duration_cast<std::chrono::microseconds>(
+      now-began).count();
+    totalConvertUs_+=us;
+    auto m=maxConvertUs_.load();
+    while(us>m&&!maxConvertUs_.compare_exchange_weak(m,us)){}
+    if(previous!=std::chrono::steady_clock::time_point{}){
+      const auto gap=std::chrono::duration_cast<std::chrono::milliseconds>(
+        now-previous).count();
+      if(gap>0){auto maxGap=maxFrameGapMs_.load();
+        while((uint64_t)gap>maxGap&&
+           !maxFrameGapMs_.compare_exchange_weak(maxGap,(uint64_t)gap)){}}
+    }
+    previous=now;
+    {
+      std::lock_guard<std::mutex> guard(frameMutex_);
+      std::swap(frontIndex_,backIndex_);
+      inputW_=w;inputH_=h;inputPitch_=pitch;
+      visibleW_=vw;visibleH_=vh;fullRange_=v.fullRange!=0;
+      rgbW_=outW;rgbH_=outH;rgbX_=(1920-outW)/2;rgbY_=(1080-outH)/2;
+      ++frameVersion_;
+    }
+    lastDecodedNs_=std::chrono::duration_cast<std::chrono::nanoseconds>(
+        now.time_since_epoch()).count();
+    const auto n=++frames_;
+    if(n==1||n%120==0)
+      ps4diag::note("VIDEO_THREAD","VIDEO_QUALITY worker=1 frames="+
+        std::to_string(n)+" decoder="+std::to_string(w)+"x"+std::to_string(h)+
+        " output="+std::to_string(outW)+"x"+std::to_string(outH)+
+        " pitch_fallback="+std::to_string(v.pitch==0?1:0)+
+        " native_sse2="+std::to_string((outW==vw&&outH==vh&&
+             ptvvideo::native_sse2_enabled())?1:0)+
+        " full_range="+std::to_string(v.fullRange!=0)+
+        " convert_us="+std::to_string(us)+
+        " avg_convert_us="+std::to_string(totalConvertUs_.load()/n));
+  }
+}
+void Player::publishMetrics(){
+  ptvtelemetry::PlaybackMetrics m;
+  {
+    std::lock_guard<std::mutex> guard(frameMutex_);
+    m.decoder_width=inputW_;m.decoder_height=inputH_;m.pitch=inputPitch_;
+    m.visible_width=visibleW_;m.visible_height=visibleH_;
+    m.output_width=rgbW_;m.output_height=rgbH_;m.full_range=fullRange_;
+  }
+  m.frames=frames_.load();
+  const auto elapsed=std::chrono::duration_cast<std::chrono::milliseconds>(
+    std::chrono::steady_clock::now()-startTime_).count();
+  m.elapsed_ms=elapsed>0?(uint64_t)elapsed:0;
+  if(m.elapsed_ms)m.effective_fps_x100=m.frames*100000ULL/m.elapsed_ms;
+  if(m.frames)m.avg_convert_us=totalConvertUs_.load()/m.frames;
+  if(videoPresentedFrames_)m.avg_blit_us=
+       totalBlitUs_.load()/videoPresentedFrames_.load();
+  m.max_convert_us=maxConvertUs_.load();
+  m.max_frame_gap_ms=maxFrameGapMs_.load();
+  m.stall_count=stallCount_.load();
+  m.range_requests=remote_.requests();
+  m.range_downloaded_bytes=remote_.downloaded_bytes();
+  m.range_retry_attempts=remote_.retry_attempts();
+  m.range_read_timeouts=remote_.read_timeouts();
+  m.range_rejected_blocks=remote_.rejected_ranges();
+  m.decoder_read_calls=remoteReads_.load();
+  m.audio_buffers=audioBuffers_.load();
+  m.audio_channels=audioChannels_.load();
+  m.audio_sample_rate_hz=audioSampleRateHz_.load();
+  m.audio_format_unsupported=audioFormatUnsupported_.load();
+  m.video_worker_enabled=videoRunning_.load();
+  m.video_empty_polls=videoEmptyPolls_.load();
+  m.video_invalid_frames=videoInvalidFrames_.load();
+  m.video_conversion_failures=videoConversionFailures_.load();
+  m.video_presented_frames=videoPresentedFrames_.load();
+  m.video_cached_redraws=videoCachedRedraws_.load();
+  m.video_skipped_frames=videoSkippedFrames_.load();
+  if(m.elapsed_ms>0)
+    m.presented_fps_x100=videoPresentedFrames_.load()*100000ULL/m.elapsed_ms;
+  m.audio_empty_polls=audioEmptyPolls_.load();
+  m.audio_converted_chunks=audioConvertedChunks_.load();
+  m.audio_output_failures=audioOutputFailures_.load();
+  m.audio_invalid_chunks=audioInvalidChunks_.load();
+  ps4diag::playback_metrics(m);
+}
 bool Player::render(Scene2D& scene){
   if(!handle_||status_==Status::Failed)return false;
-  if(status_==Status::Paused){
-    if(!rgbPixels_.empty())scene.BlitRgb32(rgbPixels_.data(),rgbX_,rgbY_,rgbW_,rgbH_);
-    return !rgbPixels_.empty();
+  // Five-second independent snapshots are uploaded by TorriODB's throttled
+  // worker even if decoding stalls or no new 120-frame progress event arrives.
+  const auto snapshotNow=std::chrono::steady_clock::now();
+  if(lastMetricsAt_==std::chrono::steady_clock::time_point{}||
+     snapshotNow-lastMetricsAt_>=std::chrono::seconds(5)){
+    lastMetricsAt_=snapshotNow;
+    publishMetrics();
   }
-  // A decoder with no frames may still report Active. Never buffer forever.
   const int elapsed=bufferingSeconds();
   if(status_==Status::Opening){
-    if(elapsed>=60){
-      status_=Status::Failed;
-      ps4diag::note("PLAYBACK","FAIL no frames in 60s; reads="+
-        std::to_string(remoteReads_.load())+" CDN_ranges="+
-        std::to_string(rangeRequests_.load()));
-      return false;
-    }
+    if(elapsed>=60){publishMetrics();status_=Status::Failed;
+      ps4diag::event(ptvtelemetry::Code::DecoderTimeout,0,0,remoteReads_.load());
+      ps4diag::note("PLAYBACK","FAIL decoder timeout reads="+
+        std::to_string(remoteReads_.load())+" ranges="+
+        std::to_string(remote_.requests()));return false;}
     if(elapsed>=10&&elapsed/10!=lastProgressBucket_){
-      lastProgressBucket_=elapsed/10;
+      lastProgressBucket_=elapsed/10;publishMetrics();
+      ps4diag::event(ptvtelemetry::Code::Buffering,0,0,(uint64_t)elapsed);
       ps4diag::note("PLAYBACK","BUFFERING seconds="+std::to_string(elapsed)+
-        " reads="+std::to_string(remoteReads_.load())+
-        " CDN_ranges="+std::to_string(rangeRequests_.load()));
+        " video_empty_polls="+std::to_string(videoEmptyPolls_.load())+
+        " reads="+std::to_string(remoteReads_.load()));}
+  }
+  if(!sceAvPlayerIsActive(handle_)&&status_==Status::Playing){
+    status_=Status::Ended;publishMetrics();
+    ps4diag::event(ptvtelemetry::Code::PlaybackEnded,0,0,frames_.load());
+    ps4diag::note("PLAYBACK","INFO stream ended frames="+
+      std::to_string(frames_.load()));
+  }
+  bool ready=false,updated=false;
+  uint64_t version=0;
+  const auto start=std::chrono::steady_clock::now();
+  {
+    std::lock_guard<std::mutex> guard(frameMutex_);
+    if(!rgbFrames_[frontIndex_].empty()&&rgbW_>0&&rgbH_>0){
+      scene.BlitVideoRgb32(rgbFrames_[frontIndex_].data(),
+                           rgbX_,rgbY_,rgbW_,rgbH_);
+      ready=true;version=frameVersion_.load();
+      updated=version!=lastDisplayedVersion_;
     }
   }
-  const bool active=sceAvPlayerIsActive(handle_);
-  if(!active){
-    if(status_==Status::Playing){
-      status_=Status::Ended;
-      ps4diag::note("PLAYBACK","INFO video session became inactive after "+std::to_string(frames_)+" frames");
+  if(ready){
+    totalBlitUs_+=(uint64_t)std::chrono::duration_cast<std::chrono::microseconds>(
+        std::chrono::steady_clock::now()-start).count();
+    if(updated){
+      ++videoPresentedFrames_;
+      if(lastDisplayedVersion_&&version>lastDisplayedVersion_+1)
+        videoSkippedFrames_+=version-lastDisplayedVersion_-1;
+      lastDisplayedVersion_=version;
+    } else ++videoCachedRedraws_;
+  }
+  if(status_==Status::Paused)return ready;
+  const int64_t last=lastDecodedNs_.load();
+  if(status_==Status::Playing&&last>0){
+    const auto now=std::chrono::steady_clock::now();
+    const auto nanos=std::chrono::duration_cast<std::chrono::nanoseconds>(
+        now.time_since_epoch()).count();
+    const uint64_t gap=nanos>last?(uint64_t)((nanos-last)/1000000):0;
+    if(gap>=1500&&(lastStallEvent_==std::chrono::steady_clock::time_point{}||
+       now-lastStallEvent_>=std::chrono::seconds(5))){
+      lastStallEvent_=now;++stallCount_;
+      auto maxGap=maxFrameGapMs_.load();
+      while(gap>maxGap&&!maxFrameGapMs_.compare_exchange_weak(maxGap,gap)){}
+      publishMetrics();
+      ps4diag::event(ptvtelemetry::Code::PlaybackStall,0,0,gap);
+      ps4diag::note("VIDEO_THREAD","STALL ms="+std::to_string(gap)+
+        " empty_polls="+std::to_string(videoEmptyPolls_.load()));
     }
-    return false;
   }
-  AvFrame frame={};
-  const bool got=sceAvPlayerGetVideoDataEx(handle_,&frame);
-  if(got==0||!frame.data){
-    if(!rgbPixels_.empty())scene.BlitRgb32(rgbPixels_.data(),rgbX_,rgbY_,rgbW_,rgbH_);
-    return !rgbPixels_.empty();
+  const uint64_t decoded=frames_.load(),bucket=decoded/120;
+  if(decoded>0&&bucket>lastProgressFrameBucket_){
+    lastProgressFrameBucket_=bucket;publishMetrics();
+    ps4diag::event(ptvtelemetry::Code::PlaybackProgress,0,0,decoded);
+    ps4diag::note("PLAYBACK","VIDEO_PROGRESS decoded="+std::to_string(decoded)+
+      " presented="+std::to_string(videoPresentedFrames_.load())+
+      " skipped="+std::to_string(videoSkippedFrames_.load())+
+      " cached="+std::to_string(videoCachedRedraws_.load())+
+      " audio_grains="+std::to_string(audioBuffers_.load())+
+      " ranges="+std::to_string(remote_.requests()));
   }
-  const auto& v=frame.details.video;
-  const int w=(int)v.width,h=(int)v.height;
-  int pitch=(int)v.pitch;
-  if(pitch<w)pitch=w;
-  if(w<2||h<2||w>4096||h>2160||pitch>8192){
-    if(!loggedInvalidFrame_){
-      loggedInvalidFrame_=true;
-      ps4diag::note("PLAYBACK","FAIL invalid frame dimensions="+
-        std::to_string(w)+"x"+std::to_string(h)+" pitch="+std::to_string(pitch));
-    }
-    return false;
-  }
-  // AvPlayer's decoder buffer may be height-aligned and cropped.
-  // Use the actual plane height/pitch and visible crop, not an assumed
-  // 2x2 block grid or the full padded picture.
-  const int cropL=(int)v.cropLeft,cropR=(int)v.cropRight;
-  const int cropT=(int)v.cropTop,cropB=(int)v.cropBottom;
-  const int visibleW=w-cropL-cropR,visibleH=h-cropT-cropB;
-  if(cropL<0||cropR<0||cropT<0||cropB<0||
-     visibleW<2||visibleH<2){
-    if(!loggedInvalidFrame_){
-      loggedInvalidFrame_=true;
-      ps4diag::note("PLAYBACK","FAIL invalid decoder crop offsets");
-    }
-    return false;
-  }
-  // Use the full 1280x720 PS4 video output surface, retaining letterboxing.
-  // Resample every pixel (bilinear Y and UV), with HD BT.709/full-range flags.
-  const float scale=std::min(1280.f/visibleW,720.f/visibleH);
-  const int outW=std::max(2,((int)(visibleW*scale)/2)*2);
-  const int outH=std::max(2,((int)(visibleH*scale)/2)*2);
-  if(outW>1280||outH>720)return false;
-  const auto convertStart=std::chrono::steady_clock::now();
-  if(!ptvvideo::scale_nv12((const uint8_t*)frame.data,w,h,pitch,
-                           cropL,cropT,visibleW,visibleH,outW,outH,
-                           v.fullRange!=0,rgbPixels_)){
-    if(!loggedInvalidFrame_){
-      loggedInvalidFrame_=true;
-      ps4diag::note("PLAYBACK","FAIL crop-aware NV12 conversion");
-    }
-    return false;
-  }
-  rgbW_=outW;rgbH_=outH;
-  rgbX_=(1280-outW)/2;rgbY_=(720-outH)/2;
-  scene.BlitRgb32(rgbPixels_.data(),rgbX_,rgbY_,outW,outH);
-  ++frames_;
-  if(frames_==1||frames_%120==0){
-    const auto elapsed=std::chrono::duration_cast<std::chrono::seconds>(
-      std::chrono::steady_clock::now()-startTime_).count();
-    const auto convertMs=std::chrono::duration_cast<std::chrono::milliseconds>(
-       std::chrono::steady_clock::now()-convertStart).count();
-    ps4diag::note("PLAYBACK","VIDEO_QUALITY size="+std::to_string(outW)+"x"+
-      std::to_string(outH)+" bt709="+std::to_string(visibleH>=720)+
-      " full_range="+std::to_string(v.fullRange!=0)+
-      " convert_ms="+std::to_string(convertMs));
-    ps4diag::note("PLAYBACK","VIDEO_PROGRESS frames="+std::to_string(frames_)+
-      " elapsed_s="+std::to_string(elapsed)+
-      " ranges="+std::to_string(rangeRequests_.load()));
-  }
+  if(!ready)return false;
   if(!preferredTracks_){
     preferredTracks_=true;
     // Prefer language metadata only when explicitly English; otherwise
@@ -386,7 +494,9 @@ bool Player::render(Scene2D& scene){
   }
   if(status_==Status::Opening){
     status_=Status::Playing;
-    ps4diag::note("PLAYBACK","PASS first decoded video frame rendered");
+    ps4diag::note("PLAYBACK","PASS first decoded frame displayed");
+    publishMetrics();
+    ps4diag::event(ptvtelemetry::Code::FirstFrame,0,0,frames_.load());
   }
   return true;
 }
@@ -394,27 +504,32 @@ void Player::pauseToggle(){
   if(!handle_)return;
   if(status_==Status::Playing){
     int r=sceAvPlayerPause(handle_);
-    if(r>=0){status_=Status::Paused;ps4diag::note("PLAYBACK","PAUSE user control");}
+    if(r>=0){status_=Status::Paused;ps4diag::event(ptvtelemetry::Code::PlaybackPaused);
+      ps4diag::note("PLAYBACK","PAUSE user control");}
   }else if(status_==Status::Paused){
     int r=sceAvPlayerResume(handle_);
-    if(r>=0){status_=Status::Playing;ps4diag::note("PLAYBACK","RESUME user control");}
+    if(r>=0){status_=Status::Playing;lastDecodedNs_=0;
+      ps4diag::event(ptvtelemetry::Code::PlaybackResumed);
+      ps4diag::note("PLAYBACK","RESUME user control");}
   }
 }
 void Player::close(){
-  if(handle_){
-    ps4diag::note("PLAYBACK","STOP decoded frames="+std::to_string(frames_));
-  }
-  audioRunning_=false;
+  audioRunning_=false;videoRunning_=false;
+  // All consumers must stop before the decoder handle and ranged stream.
+  if(videoThread_.joinable())videoThread_.join();
   if(audioThread_.joinable())audioThread_.join();
   if(handle_){
-    sceAvPlayerStop(handle_);sceAvPlayerClose(handle_);
-    handle_=nullptr;
+    ps4diag::note("PLAYBACK","STOP decoded="+std::to_string(frames_.load())+
+      " presented="+std::to_string(videoPresentedFrames_.load()));
+    publishMetrics();
+    ps4diag::event(ptvtelemetry::Code::PlaybackStopped,0,0,frames_.load());
+    sceAvPlayerStop(handle_);sceAvPlayerClose(handle_);handle_=nullptr;
   }
-  rgbPixels_.clear();rgbW_=rgbH_=0;
-  remoteUrl_.clear();
-  remoteBytes_=0;
-  cache_.clear();
-  cacheOffset_=0;
-  status_=Status::Idle;
+  {
+    std::lock_guard<std::mutex> guard(frameMutex_);
+    for(auto& f:rgbFrames_)f.clear();
+    rgbW_=rgbH_=0;frameVersion_=0;
+  }
+  remote_.stop();status_=Status::Idle;
 }
 }

@@ -9,10 +9,12 @@
 #include <sys/stat.h>
 #include <map>
 #include <cstdint>
+#include <mutex>
 
 namespace ps4diag {
 static FILE* output=nullptr;
 static int sequence=0;
+static std::mutex loggingMutex;
 bool start_logging(){
   if(output)return true;
   if(::mkdir("/data/playtorrio",0700)<0 && errno!=EEXIST)return false;
@@ -30,6 +32,7 @@ bool start_logging(){
   return true;
 }
 void note(const std::string& component,const std::string& msg){
+  std::lock_guard<std::mutex> guard(loggingMutex);
   if(!output)return;
   // The only callers pass fixed labels, counts and HTTP/error codes.
   // Do not pass arbitrary server output or URLs into this logger.

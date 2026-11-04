@@ -7,6 +7,7 @@
 #include <mutex>
 #include <vector>
 #include "avplayer_abi.hpp"
+#include "range_stream.hpp"
 class Scene2D;
 namespace ps4video {
 class Player {
@@ -17,9 +18,9 @@ public:
   bool start(const std::string& url, std::string& error);
   void close();
   void pauseToggle();
-  // Called on PS4 UI/render thread. Display most recent decoded NV12 frame.
-  // HD crop-aware bilinear NV12 conversion is still CPU-based; GPU texture
-  // presentation is the planned longer-term backend (FPS is not guaranteed).
+  // UI thread only blits a completed double-buffered RGB32 frame.
+  // Decoder polling and SSE2 conversion run on a dedicated worker.
+  // Piglet GPU textures and a full FFmpeg backend are not yet integrated.
   bool render(Scene2D& canvas);
   Status state()const{return status_.load();}
   uint64_t frames()const{return frames_;}
@@ -33,31 +34,44 @@ private:
   static void* allocate(void*,uint32_t,uint32_t);
   static void deallocate(void*,void*);
   void audioLoop();
+  void videoLoop();
   static int openRemote(void*,const char*);
   static int closeRemote(void*);
   static int readRemote(void*,uint8_t*,uint64_t,uint32_t);
   static uint64_t remoteSize(void*);
   bool prepareRemote(const std::string& url,std::string& error);
+  void publishMetrics();
   AvHandle handle_=nullptr;
   std::atomic<Status> status_{Status::Idle};
   std::chrono::steady_clock::time_point startTime_{};
   bool preferredTracks_=false;
-  uint64_t frames_=0;
-  int last_error_=0;
-  std::atomic<bool> audioRunning_{false};
-  std::thread audioThread_;
-  int user_=-1;
-  std::string remoteUrl_;
-  uint64_t remoteBytes_=0;
-  uint64_t cacheOffset_=0;
-  std::vector<uint8_t> cache_;
-  // Persist the last decoded picture while waiting for the next frame.
-  std::vector<uint32_t> rgbPixels_;
+  std::atomic<uint64_t> frames_{0};
+  std::atomic<uint64_t> totalConvertUs_{0},totalBlitUs_{0},maxConvertUs_{0};
+  std::atomic<uint64_t> maxFrameGapMs_{0},stallCount_{0};
+  std::atomic<uint64_t> videoEmptyPolls_{0},videoInvalidFrames_{0};
+  std::atomic<uint64_t> videoConversionFailures_{0},videoPresentedFrames_{0};
+  std::atomic<uint64_t> videoCachedRedraws_{0},videoSkippedFrames_{0};
+  std::atomic<uint64_t> audioEmptyPolls_{0},audioConvertedChunks_{0};
+  std::atomic<uint64_t> audioOutputFailures_{0},audioInvalidChunks_{0};
+  std::atomic<int64_t> lastDecodedNs_{0};
+  std::chrono::steady_clock::time_point lastStallEvent_{},lastMetricsAt_{};
+  std::mutex frameMutex_;
+  std::vector<uint32_t> rgbFrames_[2];
+  int frontIndex_=0,backIndex_=1;
   int rgbW_=0,rgbH_=0,rgbX_=0,rgbY_=0;
-  std::mutex remoteMutex_;
-  bool readFailureLogged_=false;
+  int inputW_=0,inputH_=0,inputPitch_=0,visibleW_=0,visibleH_=0;
+  bool fullRange_=false;
+  std::atomic<uint64_t> frameVersion_{0};
+  uint64_t lastDisplayedVersion_=0,lastProgressFrameBucket_=0;
+  std::atomic<uint64_t> audioBuffers_{0};
+  std::atomic<uint64_t> audioChannels_{0},audioSampleRateHz_{0};
+  std::atomic<bool> audioFormatUnsupported_{false};
+  int last_error_=0;
+  std::atomic<bool> audioRunning_{false},videoRunning_{false};
+  std::thread audioThread_,videoThread_;
+  int user_=-1;
+  RangeStream remote_;
   std::atomic<uint64_t> remoteReads_{0};
-  std::atomic<uint64_t> rangeRequests_{0};
   int lastProgressBucket_=-1;
   bool loggedInvalidFrame_=false;
 };

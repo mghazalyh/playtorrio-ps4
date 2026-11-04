@@ -1,3 +1,175 @@
+## 2026-11-05: Critical PS4 telemetry upload-gap fix, receipt verification, interval flight recorder and NV12 pitch guard (PR #2 BUILD PENDING)
+
+**Owner priority:** Treat telemetry as mission-critical diagnostic instrumentation and preserve Full-HD movie quality. Make one code change batch, push the branch once to trigger the normal native PS4 workflow, and STOP. Owner explicitly forbids checking any build status, job, run or artifact after the push.
+
+**Source-confirmed telemetry bug:** `ps4/telemetry.cpp::update` scheduled five-second performance uploads even after a successful send had cleared the event buffer. `send` immediately rejected all empty-event batches, so prolonged playback with only periodic samples could stop producing private reports. This is corrected: samples-only reporting is eligible. GitHub HTTP 201 now additionally requires the API creation receipt's matching path and content/commit SHAs; HTTP success alone is no longer logged as upload PASS. Fixed-size, redacted `uploadHealth` counters track attempts, failures, successes and last HTTP/native codes for future successful uploads. Samples now include true interval decoded/presented FPS and deltas for skipped frames, AudioOut grains/errors, network bytes/retries and conversion failures. The sample interval uses the monotonic clock, not wall-time estimates.
+
+**Video correctness:** `ps4/video_player.cpp` now resolves absent NV12 decoder pitch using 64-byte row alignment for nonstandard widths and rejects invalid pitch metadata. The existing 1080p CPU SSE2 frame rendering and 48 kHz audio processing are preserved. This does NOT add Piglet GPU textures, FFmpeg/libmpv, verified HD output or an audio downmix.
+
+**Changed code/tests/docs:** `src/telemetry_policy.hpp`, `ps4/telemetry.cpp`, `ps4/video_player.cpp`, `src/nv12_scaler.hpp`, `tests/telemetry_test.cpp`, `tests/nv12_scaler_test.cpp`, `docs/ps4-telemetry.md`, `docs/rendering-research.md` and this handover. Host ASan/UBSan smoke tests of the extracted interval and pitch math passed; full GitHub portable regressions and OpenOrbis native build remain PENDING owner verification. **Private TorriODB HTTP 201 on a PS4 has not yet been demonstrated.** The `playtorrio/diagnostics/ps4` directory was absent when last checked. Verify local settings `telemetryEnabled=true`, authorized Contents-write `telemetryToken`, `githubSyncEnabled=false`, and private PS4 upload receipt before interpreting missing reports.
+
+**Runtime limits:** PS4 telemetry cannot deliver data if its network/credential is broken, or after a hard crash before upload. `video_presented_frames` means UI blit attempts, not confirmed physical scanout. `audio_buffers` means accepted AudioOut calls, not proof of audible output. Original-quality, artifact-free 1080p must still be assessed on a physical PS4; no hardware rendering result or build success is claimed. Do not check builds.
+
+---
+
+## 2026-11-04: PS4 PCM16 signed rounding and streaming resampler phase fix (PR #2, NEW CI PENDING)
+
+**Snapshot / scope:** On branch `ps4-fullhd-debrid-quality` at baseline HEAD `0e28132d32b535bd58a1ee8a82beca1387fc4ba9`, main remains `4b7836684c3b06ad6f6c7028e3ab487420b6e1f6`. The exact commit containing this entry is the PR branch HEAD after the one atomic ref update. The owner explicitly forbids checking or polling build statuses; do NOT override that instruction from older handovers.
+
+**Confirmed source defects:** `src/audio_pcm.hpp` previously used `(weighted + 24000) / 48000` even for negative samples. C++ signed truncation therefore changed negative 48 kHz stereo samples that should have passed through identically. For 44.1 kHz and other rates the converter accumulated only a count remainder while restarting interpolation at position zero for each AvPlayer chunk, making conversion depend on arbitrary decoder chunk boundaries and repeating the end sample.
+
+**Change:** Maintain a continuous integer/rational output phase and the previous source frame across chunks; defer fractional interpolation until the following source frame exists. Use symmetric signed rounding and exact zero-fraction passthrough. Reject incomplete PCM frames; preserve the existing 8,192-output-frame default queue bound, 8–192 kHz range, mono duplication, first-two-channel multichannel fallback, and reset timing on format changes. Failed validation/queue growth leaves resampler state and pending queue untouched. No native renderer/AvPlayer ABI, HTTP ranges, telemetry schema, source selection, watchlist or release changes.
+
+**Host verification performed before push:** Updated `tests/audio_pcm_test.cpp` passes local g++ C++17 `-O2 -Wall -Wextra -Werror` and ASan/UBSan. Checks exact 48 kHz signed and extreme PCM samples, mono/stereo/front-pair mappings, odd chunk sizes, one-shot versus irregular-chunk byte-exact output at 32, 44.1, 48 and 96 kHz, malformed sizes and queue rejection without advancing phase. OpenOrbis native build, GoldHEN 10.01/shadPS4 audio/video, real AudioOut buffer delivery and TorriODB HTTP 201 remain UNVERIFIED for this change. One PR branch update automatically requests exactly one normal native workflow; DO NOT poll it. `main` and published v1.5.0 remain protected.
+
+**Next:** The owner checks the PR build personally. With real opt-in PS4 telemetry, compare native decoded/presented FPS, frame gaps, conversion time, stream retries and AudioOut buffer/error counters before taking more playback changes. Piglet GPU textures, FFmpeg/libmpv and true multichannel downmix remain unimplemented.
+
+---
+
+## 2026-11-04: Dedicated PS4 AvPlayer worker, 48k PCM audio adaptation and expanded flight-recorder telemetry (NEW BUILD PENDING)
+
+**Owner request:** The old video player looked extremely blocky. Substantially upgrade the *actual playback path*, taking proven architecture from Navinas3460/Stremio-PS4 and GMCA research, send opt-in telemetry automatically to private TorriODB, trigger exactly one experimental PS4 build on PR #2, STOP without polling, and preserve a copyable emergency crash-recovery prompt.
+
+**Baseline and evidence:** PR #2 branch `ps4-fullhd-debrid-quality` previously HEAD `c4e437b8e21d335dd7b2e2b346d301f6726065d0`. GitHub Actions [Run #199](https://github.com/mghazalyh/playtorrio-ps4/actions/runs/41845982145) had C++ tests and genuine OpenOrbis PKG/ZIP success, but the optional Telegram notifier failed because the PS4 repository lacked the `TELEGRAM_BOT_TOKEN` secret. The owner supplied a token in chat; NEVER copy it to Git, source, handover, workflow or diagnostics. Previous user still reported unsatisfactory/sharpness-unverified gameplay-like video on earlier versions. No newer real PS4/shadPS4 acceptance has been established.
+
+**Investigated references:** `Navinas3460/Stremio-PS4/src/video/video_avplayer.cpp` implements video decoding/conversion on a worker thread, triple video buffers and a separate paced `sceAudioOutOutput` audio worker; its `src/video/video_ffmpeg.cpp` is a different substantial software decoding backend. GMCA uses a port of libmpv/FFmpeg over OpenOrbis. Transplanting Piglet/FFmpeg into PlayTorrio requires graphics, dependency, API and binary integration not yet implemented, so don't claim it is done. We specifically adopted the safe worker/buffer/audio architecture while retaining the native SDK and sharp 1080p conversion.
+
+**Implemented in this code change (pending new CI):**
+- `ps4/video_player.cpp/.hpp`: A dedicated PS4 video thread pulls native AvPlayer NV12 frames and performs SSE2/BT.709 full-resolution conversion into double-buffered RGB32. UI `render()` now only blits a finished framebuffer and selects tracks; it no longer calls GetVideoDataEx or converts a 2-million-pixel frame. Synchronization prevents the worker from writing to the presented frame. Report independently decoded, actually presented, skipped and cached-redrawn frames, conversion and blit time, missing decoder polls, invalid frames and stalls. Stop/join both media threads before closing AvPlayer.
+- `src/audio_pcm.hpp`, `tests/audio_pcm_test.cpp`: Bounded PCM16 mono/front-pair to 48k stereo adaptation with simple linear sample-rate conversion. Consume *complete* decoded audio in real 1024-sample AudioOut grains rather than dropping remainder or rejecting all 44.1kHz/mono. Multichannel is front pair only, NOT a full surround-channel-mix guarantee. No evidence of broad AC3/DTS/HEVC support until runtime.
+- `ps4/range_stream.cpp/.hpp`: Numeric ranges successfully downloaded, byte counts, retry attempts, rejected blocks and 30-second reader wait timeouts, no URLs.
+- `src/telemetry_policy.hpp`, `ps4/telemetry.cpp`: Fixed-schema private TorriODB snapshots add the real backend name, audio/video counters, output FPS, network health and ephemeral app-session correlation. Upload-ready numeric 5-second snapshots now force at-most-once-30-second reports even without a 120-frame milestone. Never send console identifiers, keys, media names/URLs or untrusted native error text; explicit telemetry opt-in still mandatory.
+- `.github/workflows/ps4.yml`, `scripts/build-ps4.sh`: New standalone portable audio conversion test; embed actual PR head source SHA in reports (not the synthetic Actions merge SHA); retain genuine OpenOrbis PKG and emulator ZIP and PR-specific Telegram link job. No stable-release modification.
+- New `docs/ps4-telemetry.md` notes details and limits, `docs/rendering-research.md` updated, this `handover.md` updated. Keep the owner-facing emergency prompt accurate.
+
+**Build policy and remaining uncertainties:** A *single* atomic PR #2 branch push triggers the next native PS4 test/build. Do NOT poll after push, per explicit owner request. Full OpenOrbis cross compilation, device sound, visual clarity/FPS, TorriODB HTTP 201 and Telegram delivery are **UNVERIFIED for the new change**. `TELEGRAM_BOT_TOKEN` must exist in the PS4 repository Actions secrets; it was absent at Run #199 and couldn't be created through the connected GitHub API. Existing v1.5.0 release and `main` must remain untouched.
+
+**Emergency take-over prompt:** Continue PlayTorrio PS4 in `mghazalyh/playtorrio-ps4` PR #2, branch `ps4-fullhd-debrid-quality`. FIRST read `AGENTS.md`, top of `handover.md`, `docs/rendering-research.md`, `docs/ps4-telemetry.md`, latest PR HEAD and latest Actions. Previous Run #199 package PASSED, Telegram FAILED due to missing PS4 repo bot secret. Latest PR includes dedicated AvPlayer decode/SSE2 conversion worker, RGB32 double buffer, 48k PCM16 resample/grain queuing and richer opt-in TorriODB events/5-second snapshots. Do not call this a full Piglet GPU or FFmpeg/libmpv port; video/audio on actual GoldHEN 10.01 and shadPS4 are unverified. New build was owner-authorized; don't start duplicates or poll unless asked. Private TorriODB `mghazalyh/torriodb` requires `telemetryEnabled=true` and local Contents-write token; watchlist sync remains off. No credentials in logs/Git. Check `TELEMETRY PASS http=201` plus new private `playtorrio/diagnostics/ps4/player/YYYY/MM/DD/` reports, compare decoded vs presented FPS/frames, conversion and blit times, reader retries and AudioOut errors. Preserve main and v1.5.0 stable release. Subsequent action: address real test evidence or move to actual Piglet GPU texture compositor or broad FFmpeg backend only with sound tooling and CI, not speculative claims. Maintain `handover.md` for each meaningful change.
+
+## 2026-11-04: Windows/iOS telemetry parity and PS4 Telegram build link
+
+**Owner request:** Reuse private TorriODB telemetry on PS4 to avoid manual console log transfer; trigger one GitHub PR build and Telegram notification with the exact run/artifacts URL; do not poll for the build result.
+
+**Source review:** Active `mghazalyh/ptv3` branch `parity-floating-player-both` (5e178caff51161f5358cd19802ecfafb6f12e28f) uses WindowsPlaybackTelemetry, IosAudioTelemetry, PlayerDebugTelemetry, fixed event codes, opt-in, 24-event/24-sample bounds, five-second player snapshots, 30-second upload throttles, numeric audio/video facts, buildCommit/buildRun and private GitHub Contents API uploads. The private TorriODB README records migration of 3,914 JSON reports into UTC year/month/day folders on November 4.
+
+**PS4 work:** Add build provenance and UTC timestamps, 24 rolling five-second playback samples with frame deltas, numeric audio channel and sample-rate diagnostics, fresh buffering/timeout counters and UTC-partitioned PS4 archive path `playtorrio/diagnostics/ps4/player/YYYY/MM/DD/`. Preserve explicit telemetry opt-in, existing separate TorriODB token/fallback, HTTP PUT/201 success criteria, retry and throttling. Never enable watchlist sync, transmit media or console identifiers, or claim runtime proof from compilation. New portable regression assertions and `docs/ps4-telemetry.md`.
+
+**Build/notifications:** The single PR #2 branch push triggers native OpenOrbis PKG and emulator ZIP after portable tests. New PR-only Telegram notification job sends exact Actions run/artifact URL after build result, including failures. It requires PS4 repository `TELEGRAM_BOT_TOKEN` secret; optional `TELEGRAM_CHANNEL_ID` defaults to historical PlayTorrio destination. Without that secret no actual Telegram delivery is possible; job reports failure instead of skipping silently. Release upload steps are restricted to main pushes; do not touch stable v1.5.0.
+
+**Verification:** Baseline PS4 branch 2eb74594db1af9f1c2157ee4108b3f43bd459214. New CI, shadPS4/console HTTP 201 upload, actual video/audio and Telegram delivery remain PENDING. Owner explicitly forbids polling for this build; do not start duplicate builds. The console must have local `telemetryEnabled=true` with Contents-write token to send private reports.
+
+## 2026-11-04: Bit-exact SSE2 Full-HD conversion optimization (PR #2)
+
+**Current branch and verification baseline:** ps4-fullhd-debrid-quality HEAD 7d449f4f13bdcba61d62e9a3f8cf3cabc27a2c6e; [PS4 CI #197](https://github.com/mghazalyh/playtorrio-ps4/actions/runs/41282973230) succeeded on November 1, 2026, after earlier #194. Main remains at 4b7836684c3b06ad6f6c7028e3ab487420b6e1f6; the published v1.5.0 release is unchanged.
+
+**Problem and implementation:** The renderer still converts all 1920x1080 NV12 frames to packed RGB32 on the UI thread. In src/nv12_scaler.hpp, native-resolution frames now use a portable guarded SSE2 path handling 8 pixels at once with the original integer BT.601/BT.709, limited/full-range equations, 0x80 alpha, exact rounding/saturation, even-width scalar tail, crop and pitch. Non-x86/SSE2 platforms and all resampled frames retain the prior scalar/bilinear implementation. ps4/video_player.cpp logs only the numeric native_sse2 flag alongside existing conversion timings. No source recompression, telemetrics policy change, audio change, or GPU/FFmpeg/libmpv integration.
+
+**Tests and confidence:** Local isolated x86-64 SSE2 reference exercise with randomized widths and both color ranges passed under C++17 ASan/UBSan; tests/nv12_scaler_test.cpp adds independent exhaustive scalar-reference checks for varying pixels, padded stride, cropped regions and 720-line HD. The repository portable/native OpenOrbis CI for this NEW change is **PENDING until GitHub Actions reports**. Neither shadPS4 nor physical PS4 picture quality, actual conversion time, sustained FPS, or audio has been verified. Benchmarks measured on a host cannot predict PS4 speed.
+
+**Next:** Inspect the resulting PR run and compare VIDEO_QUALITY native_sse2/avg_convert_us/max_convert_us with previous build in a live TMDB → Torrentio → TorBox playback. Follow up on audio formats separately; consider GPU texture conversion only when an actual console-compatible OpenOrbis pipeline can be proven. Preserve source selection, read-ahead, privacy-safe telemetry and opt-in semantics.
+
+## 2026-11-01: Automatic in-depth PS4 runtime diagnostics to private TorriODB
+
+**Owner requirement:** On a normal TMDB → Torrentio → TorBox PS4 test, diagnostics should be uploaded with minimal manual log handling, including nonfatal pixelation/performance investigations. Original opt-in privacy boundary remains mandatory.
+
+**Audit of old implementation:** Only allowlisted failures queued an upload; `VIDEO_QUALITY` dimensions and conversion costs were **only in FTP-local logs**. Successful but blocky/stuttering playback often produced no private report. Failed uploads had no periodic retry, and the private TorriODB destination path did not exist when queried through the connected GitHub integration. No end-to-end HTTP 201 from shadPS4/PS4 has been proven.
+
+**Implementation:** `src/telemetry_policy.hpp`, `ps4/telemetry.cpp`, `ps4/diagnostics.hpp`, `ps4/video_player.cpp/.hpp`, and `tests/telemetry_test.cpp` now add fixed-shape numeric playback metrics to every report: decoded/cropped/output dimensions, pitch and full range, decoded frame count, elapsed time, effective FPS ×100, conversion and blit times in microseconds, largest gap between fresh decoded frames, detected stalls, CDN range requests, decoder read calls, audio output count and unsupported-audio flag. The always-bounded 24 event codes remain, with playback stopped/ended/paused/resumed and stall codes added. An opted-in application queues a startup receipt on `settings_loaded`, an initial playback report, first-frame report, periodic reports every 120 decoded frames (rate limited to one attempt per 30 seconds), and a stop report, even without fatal errors. Failed uploads automatically retry with the same 30-second ceiling while the app stays running. Explicit playback stalls above 1.5 seconds are reported. No titles, IMDb/TMDB IDs, URL, torrent hash, media bytes, keys or console identifier enter the report.
+
+**Configuration and test caveat:** Telemetry is still disabled by default; enable `telemetryEnabled=true` with a private repository Contents-write token in FTP-local `/data/playtorrio/settings.json` and restart. Keep `githubSyncEnabled=false`. **New CI and PS4/emulator runtime uploads remain PENDING.** A hard crash/power-off can still lose unsent events; no durable offline queue has been implemented. The numeric measures can expose low decoder resolution and frame pacing but cannot perfectly infer subjective sharpness or artifacts from the output pixels.
+
+**Next:** Confirm portable regression and native OpenOrbis package CI, then install this branch's experimental ZIP/PKG, verify `[TELEMETRY] PASS ... http=201` and an actual JSON report arriving under `playtorrio/diagnostics/ps4/player/` in private TorriODB. Compare the report's `playback.decoder_*`, `output_*`, `effective_fps_x100`, and `max_frame_gap_ms` with the on-screen result. Never equate CI with runtime success.
+
+---
+
+## 2026-11-01: TMDB → Torrentio → TorBox is the primary PS4 quality path
+
+**Priority clarified by owner:** TMDB is for discovering/selecting movies and episodes; the selected IMDb/episode identifier drives the configured Torrentio/Stremio addon; the resulting stream or magnet is resolved through TorBox when needed; AvPlayer must display the **original media** at normal movie quality. A low-resolution, blocky/game-like picture is not a usable result. This priority takes precedence over optional UI work and unrelated buffering tweaks.
+
+**Confirmed source-picker defect:** `ps4/source_resolver.cpp::list_sources` assigned **score=0** to every TorBox magnet candidate and retained only the first 100 returned sources before sorting. This could present a low-quality 480p source before a compatible 1080p Torrentio/TorBox encode, or omit later Full-HD results entirely. Automatic `resolve` independently preferred an early direct HTTPS link rather than the best ranked TorBox source.
+
+**Change:** `src/playback_choice.hpp` adds portable direct/TorBox ranking using codec, resolution, container and trusted 40-character hexadecimal hash metadata. `list_sources` uses those ranks for TorBox candidates, retains the strongest 100 across all configured addons, and sorts the result. Automatic fallback reuses exactly the displayed rankings and tries at most eight candidates. User-selected source identity and `fileIdx` are preserved, TorBox serves original unmodified bytes, and no stream URL is recorded. The local diagnostic direct-URL override, explicit existing TorBox file override, telemetry/read-ahead, and watchlist setting are untouched.
+
+**Test evidence:** Previous graphics optimization run [#195](https://github.com/mghazalyh/playtorrio-ps4/actions/runs/41280780093) PASS for portable tests, native OpenOrbis build, PKG and ZIP. New tests now cover Torrentio 1080p vs 480p/720p, malformed hashes, unsupported AV1, and TorBox configuration requirements. **This change's CI: PENDING; visual and audio runtime on shadPS4 and GoldHEN: NOT VERIFIED.** A correct source-quality rank is not proof that the decoder delivers a sharp movie image.
+
+**Next:** Verify CI; then run the actual TMDB → Torrentio → TorBox path and inspect decoder input dimensions, visible 1080p scanout, `VIDEO_QUALITY` conversion/blit timings, sound, and sustained video on shadPS4, then physical PS4. Do not claim picture quality is fixed without runtime evidence.
+
+---
+
+## 2026-11-01: Full-HD CPU presentation optimization (PR #2, new CI PENDING)
+
+**Baseline checked before changes:** `ps4-fullhd-debrid-quality` at `b37e9d340db760d815fc5e6ec2b79fb1d7089dda`; native GitHub Actions run [#194](https://github.com/mghazalyh/playtorrio-ps4/actions/runs/41280209685) concluded SUCCESS. The protected v1.5.0 public release and `main` are unchanged.
+
+**Problem and evidence:** The exact-resolution NV12 converter allocated four bilinear sampling tables on every frame even though it immediately used the non-resizing path. Within that path it repeated U/V chroma coefficient work for both pixels in each NV12 chroma pair. The OpenOrbis 1080p clear used about 921,600 logical DrawPixel calls each frame, with extra logical-to-physical scaling.
+
+**Implementation:** `src/nv12_scaler.hpp` now skips sampler allocation for native-resolution frames and reuses each U/V conversion across two luma pixels while preserving existing RGB coefficients, 1:1 1080p output, crop and pitch handling. `scripts/patch-graphics.py` writes the 1080p frame clear directly to VideoOut rather than routing through the logical UI per-pixel transformation. `ps4/video_player.cpp/.hpp` now logs actual conversion and blit costs separately as `VIDEO_QUALITY convert_us`, `avg_convert_us`, `max_convert_us`, `blit_us`, and `avg_blit_us`; `convert_ms` remains for older log readers. `tests/nv12_scaler_test.cpp` checks full/limited range, BT.601/709, non-neutral chroma, padded pitch and crop against the previous per-pixel arithmetic.
+
+**Verification matrix:** Before this commit: baseline portable regressions, native compile/link, PKG and ZIP all PASS in #194. For this optimization: **PENDING** GitHub Actions host regressions and OpenOrbis cross-build. shadPS4 image clarity, visible FPS, sound, subtitles, TorriODB HTTP 201 uploads and actual GoldHEN 10.01 playback remain **NOT VERIFIED**.
+
+**Next:** Verify the new PR workflow, inspect `VIDEO_QUALITY` timings on shadPS4 and PS4, then evaluate a buffered off-thread conversion or native GPU texture compositor if CPU frame costs are still excessive. Preserve telemetry and range worker. Do not merge PR #2, alter TorBox media bytes, change library sync, or publish a new v1.5.0 release based on CI alone.
+
+---
+
+## 2026-11-01: Native Full HD PS4 rendering experiment
+
+The project uses TorBox/debrid to fetch original-quality video; neither transport nor source compression is being modified. Prior code rendered every video at 1280x720 regardless of input resolution. This experiment increases VideoOut to 1920x1080, converts matching NV12 decoded 1080p directly without downscaling, adds an explicit physical 1080p BlitVideoRgb32, adapts existing 720p UI logical drawing through an OpenOrbis build-local patch, and removes the unconditional 42 ms sleep after VSYNC.
+
+Source scoring in src/playback_choice.hpp prioritizes labeled 1080p H.264/AAC MP4 over HD/SD low-quality and unsupported 4K HEVC candidates. This does NOT change underlying debrid stream bytes; the old torboxHash/chooseFile resolver still needs a separate verified integration before claiming TorBox-specific automatic file-choice changes.
+
+Implementation branch: ps4-fullhd-debrid-quality, based on ps4-optin-telemetry-recovery. Before build: TEST AND OPENORBIS VERIFICATION PENDING. Native 1080 framebuffer initialization, runtime FPS, PS4 pixel clarity, audio and emulator behavior remain unverified by source changes alone. The stable v1.5.0 release is not overwritten.
+
+---
+## 2026-11-01: seekable linear read-ahead experiment from two PS4 references
+
+References: thcolin/gamepad-media-center-aggregator (PS4 libmpv/FFmpeg GPU rendering) and Navinas3460/Stremio-PS4 (asynchronous RangeReader; parallel read-ahead; separate FFmpeg backend; native AvPlayer workarounds).
+
+On PR branch ps4-optin-telemetry-recovery, added src/range_window.hpp with strict Content-Range validation and deterministic bounded sliding-window policy. Added ps4/range_stream.hpp/.cpp to serve AvPlayer readOffset callbacks from a dedicated native networking worker rather than invoking libSceHttp on the decoder callback. Two 2 MiB blocks ahead and one behind are retained, with demand-first scheduling and seek reset, 30-second wait timeout, bounded retry and small initial-range immediate cache. No 2+ GB full downloads; original private telemetry remains opt-in and source-safe.
+
+This does not implement libmpv, FFmpeg decoding, or GPU texture presentation. Previous user-tested v1.3.4 blockiness predates v1.3.5 bilinear scaler and does not confirm the newer renderer. Streaming improvements can improve stalls and callback stack safety, not repair pixelation by themselves.
+
+Verification: previous PR CI run 186 passed. New read-ahead portable tests and OpenOrbis PKG have not yet been verified on this commit; PS4/emulator playback and TorriODB HTTP 201 uploads remain unverified. Do not merge or publish old v1.5.0 tag automatically.
+
+---
+## 2026-11-01: PS4 recovery implementation (pending CI and device verification)
+
+Owner requested an update to PS4 using v1.1.15 Windows/iOS diagnostics as the
+reference, especially **automatic opt-in private telemetry to TorriODB**,
+and inspection of the unfinished linear streaming plan.
+
+**New branch:** \`ps4-optin-telemetry-recovery\` from PS4 main
+\`4b7836684c3b06ad6f6c7028e3ab487420b6e1f6\`.
+**Windows/iOS reference branch:** \`parity-floating-player-both\`,
+commit \`532c3478bd8110e4bd15276fa52a488c31e5bc80\`.
+This PS4 change is not a v1.5.0 published build and must not be
+represented as emulator or physical-console verified.
+
+**Implemented on branch:** \`telemetryEnabled\` (OFF unless explicitly true);
+optional \`telemetryToken\` with fallback to FTP-local \`githubToken\`;
+**githubSyncEnabled stays unchanged and disabled by default**.
+Automatic failure-triggered, nonblocking and 30-second-throttled GitHub
+Contents uploads to \`mghazalyh/torriodb\` path
+\`playtorrio/diagnostics/ps4/player/\` using fixed-value codes and
+24-entry bounded reports, with no URLs, titles, transcripts, credentials,
+user/device identifiers or free-form log messages. Existing FTP local
+logs preserved. Added stage events for source resolution, remote range,
+AvPlayer, decoding timeouts and audio errors; serialized PS4 log and net
+initialization. Added host tests, PR-safe native workflow, and build linkage.
+
+**Linear streaming:** \`ps4/video_player.cpp\` already performs HTTP HEAD,
+64 KiB 206 probe, and aligned 2 MiB on-demand HTTP Range reads through
+AvPlayer's readOffset callback. Sequential reads *are* linear across
+blocks, but an actual continuous one-request stream or read-ahead prefetch
+is NOT implemented. Seek support must be preserved for media container
+metadata/indexes; no streaming rewrite in this telemetry patch.
+
+**Verification matrix:** Source changes pushed on branch: YES. Host telemetry
+tests: PENDING. OpenOrbis cross-compile and PKG: PENDING. shadPS4 video/audio:
+PENDING. Physical PS4: PENDING. Actual TorriODB upload: PENDING. Previous
+user-tested v1.3.4 emulator frames do not validate this new patch.
+No writes to ptv3 or private torriodb. Do not rerun or clobber v1.5.0 release.
+
+---
+
 # handover.md — PlayTorrio PS4 project continuity / Codex takeover
 
 > **Purpose:** The persistent, source-backed handover after chat-session loss. Detailed enough for Codex or another agent to resume with no dependence on the previous chat. Read root **AGENTS.md** first. Keep this document current on **every meaningful coding/debugging/release task**; append a Change Log entry and refresh the snapshot. It is intentionally long because several confirmed root causes were found through multiple experimental builds.
@@ -520,6 +692,15 @@ A genuine final version requires direct native PS4 install/use with real hardwar
 10. Do not silently switch on GitHub sync.
 
 ## 9. CHANGE LOG — append new work here (newest first)
+
+### 2026-11-04 — PCM16 streaming phase and signed conversion correction (PR #2; build NOT CHECKED)
+- **Baseline:** 0e28132d32b535bd58a1ee8a82beca1387fc4ba9, protected main 4b7836684c3b06ad6f6c7028e3ab487420b6e1f6.
+- **Confirmed by source:** Negative PCM16 passthrough rounding was incorrect; non-48k interpolation reset at every audio chunk despite a carried sample-count remainder. Arbitrary chunk boundaries changed decoded audio samples.
+- **Implementation:** src/audio_pcm.hpp keeps rational 48k output phase and previous input frame between calls, symmetric negative rounding, strict complete-frame validation and failure-atomic bounded queue updates. tests/audio_pcm_test.cpp covers PCM extremes, format/channel mapping, irregular chunks against a whole-stream reference, validation rejection.
+- **Verification:** Local g++ C++17 optimized and ASan/UBSan standalone audio tests PASS. Native OpenOrbis package, PS4/shadPS4 playback, audible sync and telemetry upload NOT VERIFIED. PR #2 branch update triggers the workflow; per owner's newer instruction NEVER inspect build statuses.
+- **Documentation:** handover.md and docs/rendering-research.md. No changes to main, release, private TorriODB, credentials, telemetry opt-in or watchlist setting.
+
+
 
 ### 2026-10-27 — v1.5 source-backed Windows/iOS feature catch-up (CI PASS; shadPS4 PENDING)
 - **User correction:** Previous feature comparison examined `ptv3` default `main` rather than real active `parity-floating-player-both`. Verified released v1.1.7 Build 127, also observed unreleased v1.1.8 actor-filmography branch commit; reconstructed source-grounded feature matrix in docs/ptv3-active-feature-audit.md.

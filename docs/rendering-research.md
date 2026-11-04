@@ -59,3 +59,22 @@ Previous PlayTorrio renderer (`ps4/video_player.cpp`):
 6. Keep `githubSyncEnabled=false` until explicit user request.
 
 Source reading is architectural analysis and cannot substitute for runtime testing or firmware-specific compatibility.
+
+## November 4: Actual playback worker and more informative console diagnostics
+
+Stremio-PS4's AvPlayer implementation provided the relevant **architecture**: a dedicated video decoder/pixel-conversion thread and output buffers independent from the main UI, plus a paced AudioOut queue. Our new `ps4/video_player.cpp` implements this pattern with an OpenOrbis-compatible `std::thread`, native 1080p SSE2 NV12 conversion and two protected RGB32 buffers. The PS4 UI only blits the last finished frame; render no longer pulls AvPlayer frames or converts pixels. `videoPresentedFrames` and `videoSkippedFrames` expose when the decoder is faster than UI rendering.
+
+The separate `src/audio_pcm.hpp` adapter consumes *whole* native PCM16 chunks, supports mono duplicated to stereo and 8–192 kHz sources linearly resampled to 48 kHz, and uses blocking 1,024-frame `sceAudioOutOutput` calls for real playback pacing. It uses only the first two decoded channels for multichannel audio because we do not have a verified PS4 surround-channel map. This is NOT a full FFmpeg/MPV audio renderer or codec support guarantee.
+
+The existing native VideoOut surface still receives CPU-produced RGB32. It is **not** Piglet GPU texture playback and the full Stremio-PS4 FFmpeg fallback/GMCA libmpv engine is **not** integrated. All graphics and audio changes require validation on shadPS4 and actual hardware. Full HDL original-quality TorBox content may still be limited by AvPlayer codecs and CPU memory throughput. These are measurable via new private TorriODB telemetry rather than assumed fixed.
+
+## November 4: Chunk-continuous PCM16 resampling correction
+
+A source review after the initial audio worker implementation found two independent PCM errors: the signed interpolation formula incorrectly rounded negative samples, including zero-fraction 48 kHz passthrough, and 44.1/32 kHz interpolation restarted at each arbitrary decoded PCM chunk boundary. The new `src/audio_pcm.hpp` implementation carries a rational output position plus the last decoded input frame between chunks. Fractional samples at a chunk edge wait for the next input frame instead of duplicating the edge sample. It preserves bounded output and the original first-two-channel multichannel behavior, not a full surround downmix. Portable optimized and ASan/UBSan regressions passed locally; audible results on PS4/shadPS4 and the newly requested native CI build are pending owner verification.
+
+
+## November 5: Native NV12 stride fallback hardening (verification pending)
+
+The 1080p native VideoOut path retains full per-pixel resolution, aspect-preserving presentation, cropped BT.709 conversion, SSE2 conversion, separate worker and paced PCM AudioOut. An implementation defect was identified for decoders reporting zero pitch on non-64-aligned widths: the previous fallback incorrectly assumed a tightly packed width. The video worker now computes 64-byte-aligned NV12 row pitch only when the decoder omits it, and rejects impossible supplied pitches instead of silently substituting a different stride. Regression tests cover 1920 and nonstandard width fallback and invalid metadata.
+
+This is a deterministic plane-addressing correctness fix, **not** proof of cinematic visual quality. The physical PS4 has not been tested. Piglet GPU video textures, original FFmpeg/libmpv fallback, alternate codec support, measured audio/video sync and guaranteed 1080p source selection remain separate milestones. Do not describe those reference-player backends as incorporated.
